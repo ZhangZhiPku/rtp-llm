@@ -15,6 +15,7 @@ def git_deps():
         patches = ["//3rdparty/aiter:rtp-llm.patch", "//3rdparty/aiter:0003-gemm_tune.patch", "//3rdparty/aiter:aiter-fmha.patch", "//3rdparty/aiter:silu.patch"],
         patch_cmds = [
             "echo 'from aiter.jit.core import compile_ops, get_args_of_build, build_module, get_module' >> build_aiter_module.py",
+            "echo 'import multiprocessing' >> build_aiter_module.py",
             "echo 'from typing import Dict' >> build_aiter_module.py",
             "echo 'import os' >> build_aiter_module.py",
             "echo '' >> build_aiter_module.py",
@@ -58,6 +59,7 @@ def git_deps():
             "echo '    build_aiter_module(\"module_rmsnorm\")' >> build_aiter_module.py",
             "echo '    build_aiter_module(\"module_mha_fwd\")' >> build_aiter_module.py",
             "echo '    build_aiter_module(\"module_gemm_a8w8_blockscale\")' >> build_aiter_module.py",
+            "echo '    build_aiter_module(\"module_gemm_a8w8\")' >> build_aiter_module.py",
             "echo '    build_aiter_module(\"module_quant\")' >> build_aiter_module.py",
             "echo '    build_aiter_module(\"module_smoothquant\")' >> build_aiter_module.py",
             "echo '    build_aiter_module(\"module_moe_sorting\")' >> build_aiter_module.py",
@@ -77,6 +79,7 @@ def git_deps():
             "echo '    cd ./csrc/cpp_itfs/mla' >> build_mla_kernel.sh",
             "echo '    make asm_mla_decode_fwd_torch_lib.so' >> build_mla_kernel.sh",
             "echo 'fi' >> build_mla_kernel.sh",
+
         ],
         build_file = "//3rdparty/aiter:BUILD",
     )
