@@ -43,6 +43,7 @@ genrule(
         "libmodule_moe_asm.so",
         "libmodule_gemm_a8w8_bpreshuffle.so",
         "libmodule_gemm_a8w8_blockscale.so",
+        "libmodule_gemm_a8w8.so",
         "libmodule_quant.so",
         "libmodule_smoothquant.so",
         "libmodule_pa.so",
@@ -54,21 +55,22 @@ genrule(
         "libmodule_moe_ck2stages.so"
     ],
     cmd = """
-       cp ./bazel-out/k8-opt/bin/external/aiter_src/aiter/jit/libmodule_aiter_enum.so $(location libmodule_aiter_enum.so);
-cp ./bazel-out/k8-opt/bin/external/aiter_src/aiter/jit/libmodule_custom_all_reduce.so $(location libmodule_custom_all_reduce.so);
-cp ./bazel-out/k8-opt/bin/external/aiter_src/aiter/jit/libmodule_moe_sorting.so $(location libmodule_moe_sorting.so);
-cp ./bazel-out/k8-opt/bin/external/aiter_src/aiter/jit/libmodule_moe_asm.so $(location libmodule_moe_asm.so);
-cp ./bazel-out/k8-opt/bin/external/aiter_src/aiter/jit/libmodule_gemm_a8w8_bpreshuffle.so $(location libmodule_gemm_a8w8_bpreshuffle.so);
-cp ./bazel-out/k8-opt/bin/external/aiter_src/aiter/jit/libmodule_gemm_a8w8_blockscale.so $(location libmodule_gemm_a8w8_blockscale.so);
-cp ./bazel-out/k8-opt/bin/external/aiter_src/aiter/jit/libmodule_quant.so $(location libmodule_quant.so);
-cp ./bazel-out/k8-opt/bin/external/aiter_src/aiter/jit/libmodule_smoothquant.so $(location libmodule_smoothquant.so);
-cp ./bazel-out/k8-opt/bin/external/aiter_src/aiter/jit/libmodule_pa.so $(location libmodule_pa.so);
-cp ./bazel-out/k8-opt/bin/external/aiter_src/aiter/jit/libmodule_activation.so $(location libmodule_activation.so);
-cp ./bazel-out/k8-opt/bin/external/aiter_src/aiter/jit/libmodule_attention_asm.so $(location libmodule_attention_asm.so);
-cp ./bazel-out/k8-opt/bin/external/aiter_src/aiter/jit/libmodule_mha_fwd.so $(location libmodule_mha_fwd.so);
-cp ./bazel-out/k8-opt/bin/external/aiter_src/aiter/jit/libmodule_norm.so $(location libmodule_norm.so);
-cp ./bazel-out/k8-opt/bin/external/aiter_src/aiter/jit/libmodule_rmsnorm.so $(location libmodule_rmsnorm.so);
-cp ./bazel-out/k8-opt/bin/external/aiter_src/aiter/jit/libmodule_moe_ck2stages.so $(location libmodule_moe_ck2stages.so);
+        cp ./bazel-out/k8-opt/bin/external/aiter_src/aiter/jit/libmodule_aiter_enum.so $(location libmodule_aiter_enum.so);
+        cp ./bazel-out/k8-opt/bin/external/aiter_src/aiter/jit/libmodule_custom_all_reduce.so $(location libmodule_custom_all_reduce.so);
+        cp ./bazel-out/k8-opt/bin/external/aiter_src/aiter/jit/libmodule_moe_sorting.so $(location libmodule_moe_sorting.so);
+        cp ./bazel-out/k8-opt/bin/external/aiter_src/aiter/jit/libmodule_moe_asm.so $(location libmodule_moe_asm.so);
+        cp ./bazel-out/k8-opt/bin/external/aiter_src/aiter/jit/libmodule_gemm_a8w8_bpreshuffle.so $(location libmodule_gemm_a8w8_bpreshuffle.so);
+        cp ./bazel-out/k8-opt/bin/external/aiter_src/aiter/jit/libmodule_gemm_a8w8_blockscale.so $(location libmodule_gemm_a8w8_blockscale.so);
+        cp ./bazel-out/k8-opt/bin/external/aiter_src/aiter/jit/libmodule_gemm_a8w8.so $(location libmodule_gemm_a8w8.so);
+        cp ./bazel-out/k8-opt/bin/external/aiter_src/aiter/jit/libmodule_quant.so $(location libmodule_quant.so);
+        cp ./bazel-out/k8-opt/bin/external/aiter_src/aiter/jit/libmodule_smoothquant.so $(location libmodule_smoothquant.so);
+        cp ./bazel-out/k8-opt/bin/external/aiter_src/aiter/jit/libmodule_pa.so $(location libmodule_pa.so);
+        cp ./bazel-out/k8-opt/bin/external/aiter_src/aiter/jit/libmodule_activation.so $(location libmodule_activation.so);
+        cp ./bazel-out/k8-opt/bin/external/aiter_src/aiter/jit/libmodule_attention_asm.so $(location libmodule_attention_asm.so);
+        cp ./bazel-out/k8-opt/bin/external/aiter_src/aiter/jit/libmodule_mha_fwd.so $(location libmodule_mha_fwd.so);
+        cp ./bazel-out/k8-opt/bin/external/aiter_src/aiter/jit/libmodule_norm.so $(location libmodule_norm.so);
+        cp ./bazel-out/k8-opt/bin/external/aiter_src/aiter/jit/libmodule_rmsnorm.so $(location libmodule_rmsnorm.so);
+        cp ./bazel-out/k8-opt/bin/external/aiter_src/aiter/jit/libmodule_moe_ck2stages.so $(location libmodule_moe_ck2stages.so);
 """,
 tags = ["rocm", "local"],
 )
@@ -83,6 +85,7 @@ genrule(
         "module_moe_asm.so",
         "module_gemm_a8w8_bpreshuffle.so",
         "module_gemm_a8w8_blockscale.so",
+        "module_gemm_a8w8.so",
         "module_quant.so",
         "module_smoothquant.so",
         "module_pa.so",
@@ -100,6 +103,7 @@ genrule(
         cp external/aiter/aiter/jit/module_moe_asm.so $(location module_moe_asm.so);
         cp external/aiter/aiter/jit/module_gemm_a8w8_bpreshuffle.so $(location module_gemm_a8w8_bpreshuffle.so);
         cp external/aiter/aiter/jit/module_gemm_a8w8_blockscale.so $(location module_gemm_a8w8_blockscale.so);
+        cp external/aiter/aiter/jit/module_gemm_a8w8.so $(location module_gemm_a8w8.so);
         cp external/aiter/aiter/jit/module_quant.so $(location module_quant.so);
         cp external/aiter/aiter/jit/module_smoothquant.so $(location module_smoothquant.so);
         cp external/aiter/aiter/jit/module_pa.so $(location module_pa.so);

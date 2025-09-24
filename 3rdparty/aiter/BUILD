@@ -98,6 +98,7 @@ genrule(
         "aiter/jit/libmodule_pa.so",
         "aiter/jit/libmodule_attention_asm.so",
         "aiter/jit/libmodule_gemm_a8w8_bpreshuffle.so",
+        "aiter/jit/libmodule_gemm_a8w8.so",
         "aiter/jit/libmodule_activation.so",
         "aiter/jit/libmodule_rmsnorm.so",
         "aiter/jit/libmodule_smoothquant.so",
@@ -120,6 +121,7 @@ genrule(
         cp external/aiter_src/aiter/jit/module_moe_sorting.so $(location aiter/jit/libmodule_moe_sorting.so);
         cp external/aiter_src/aiter/jit/module_moe_asm.so $(location aiter/jit/libmodule_moe_asm.so);
         cp external/aiter_src/aiter/jit/module_gemm_a8w8_blockscale.so $(location aiter/jit/libmodule_gemm_a8w8_blockscale.so);
+        cp external/aiter_src/aiter/jit/module_gemm_a8w8.so $(location aiter/jit/libmodule_gemm_a8w8.so);
         cp external/aiter_src/aiter/jit/module_pa.so $(location aiter/jit/libmodule_pa.so);
         cp external/aiter_src/aiter/jit/module_attention_asm.so $(location aiter/jit/libmodule_attention_asm.so);
         cp external/aiter_src/aiter/jit/module_gemm_a8w8_bpreshuffle.so $(location aiter/jit/libmodule_gemm_a8w8_bpreshuffle.so);
@@ -258,6 +260,18 @@ cc_library(
     deps = [":cpp_libraries"],
     copts = [],
     strip_include_prefix = "csrc/include/",
+    visibility = ["//visibility:public"],
+    tags = ["rocm","local"],
+)
+
+cc_library(
+    name = "module_gemm_a8w8",
+    srcs = ["aiter/jit/libmodule_gemm_a8w8.so"],
+    hdrs = ["csrc/ck_gemm_a8w8/include/gemm_a8w8.h"],
+    deps = [":cpp_libraries"],
+    copts = [],
+    linkopts = [],
+    strip_include_prefix = "csrc/ck_gemm_a8w8/include/",
     visibility = ["//visibility:public"],
     tags = ["rocm","local"],
 )

@@ -106,6 +106,8 @@ void hipblasMMWrapper::FP8_Gemm(hipblasOperation_t transa,
               const int          ldc,
               const float*       d_scale_a,
               const float*       d_scale_b,
+              const void*        bias,
+              const hipblasLtEpilogue_t epilogue,
               float              alpha_,
               float              beta_) {
     
@@ -160,6 +162,15 @@ void hipblasMMWrapper::FP8_Gemm(hipblasOperation_t transa,
         matmul, HIPBLASLT_MATMUL_DESC_A_SCALE_POINTER, &d_scale_a, sizeof(d_scale_a)));
     ROCM_CHECK(hipblasLtMatmulDescSetAttribute(
         matmul, HIPBLASLT_MATMUL_DESC_B_SCALE_POINTER, &d_scale_b, sizeof(d_scale_b)));
+    if (epilogue == HIPBLASLT_EPILOGUE_BIAS) {
+        ROCM_CHECK(hipblasLtMatmulDescSetAttribute(
+            matmul, HIPBLASLT_MATMUL_DESC_EPILOGUE, &epilogue, sizeof(epilogue)));
+        int32_t bias_data_type = Ctype_;
+        ROCM_CHECK(hipblasLtMatmulDescSetAttribute(
+            matmul, HIPBLASLT_MATMUL_DESC_BIAS_DATA_TYPE, &bias_data_type, sizeof(bias_data_type)));
+        ROCM_CHECK(hipblasLtMatmulDescSetAttribute(
+            matmul, HIPBLASLT_MATMUL_DESC_BIAS_POINTER, &bias, sizeof(void*)));
+    }
 
     const int                        request_solutions = 1;
     hipblasLtMatmulHeuristicResult_t heuristicResult[request_solutions];
@@ -214,7 +225,6 @@ void hipblasMMWrapper::FP8_Gemm(hipblasOperation_t transa,
     ROCM_CHECK(hipblasLtMatrixLayoutDestroy(CDesc));
     
 }
-
 
 void hipblasMMWrapper::Gemm(hipblasOperation_t transa,
                             hipblasOperation_t transb,
@@ -448,7 +458,9 @@ void hipblasMMWrapper::GemmBiasAct(hipblasOperation_t        transa,
                                    void*                     C,
                                    const int                 ldc,
                                    const void*               bias,
-                                   const hipblasLtEpilogue_t epilogue) {
+                                   const hipblasLtEpilogue_t epilogue,
+                                   const float*              scale_A,
+                                   const float*              scale_B) {
     RTP_LLM_LOG_DEBUG(__PRETTY_FUNCTION__);
     float f_alpha(1.0);
     float f_beta(0.0);
@@ -489,16 +501,30 @@ void hipblasMMWrapper::GemmBiasAct(hipblasOperation_t        transa,
                                    stream_));
     } else {
         hipblasLtMatrixLayout_t ADesc, BDesc, CDesc;
-        ROCM_CHECK(hipblasLtMatrixLayoutCreate(&ADesc, Atype_, m, k, lda));
-        ROCM_CHECK(hipblasLtMatrixLayoutCreate(&BDesc, Btype_, k, n, ldb));
-        ROCM_CHECK(hipblasLtMatrixLayoutCreate(&CDesc, Ctype_, m, n, ldc));
-
         hipblasLtMatmulDesc_t matmul;
         ROCM_CHECK(hipblasLtMatmulDescCreate(&matmul, HIPBLAS_COMPUTE_32F, HIP_R_32F));
-        hipblasOperation_t trans_a = transa;
-        hipblasOperation_t trans_b = transb;
-        ROCM_CHECK(hipblasLtMatmulDescSetAttribute(matmul, HIPBLASLT_MATMUL_DESC_TRANSA, &trans_a, sizeof(int32_t)));
-        ROCM_CHECK(hipblasLtMatmulDescSetAttribute(matmul, HIPBLASLT_MATMUL_DESC_TRANSB, &trans_b, sizeof(int32_t)));
+        if ((use_swizzleA_ || test_swizzleA_) && transa==HIPBLAS_OP_N && Atype_ == HIP_R_8F_E4M3_FNUZ) {
+            ROCM_CHECK(hipblasLtMatrixLayoutCreate(&ADesc, Atype_, k, m, k));
+            ROCM_CHECK(hipblasLtMatrixLayoutCreate(&BDesc, Btype_, k, n, ldb));
+            ROCM_CHECK(hipblasLtMatrixLayoutCreate(&CDesc, Ctype_, m, n, ldc));
+
+            hipblasLtOrder_t orderA = HIPBLASLT_ORDER_COL16_4R16;
+            ROCM_CHECK(hipblasLtMatrixLayoutSetAttribute(ADesc, HIPBLASLT_MATRIX_LAYOUT_ORDER, &orderA, sizeof(orderA)));
+            
+            hipblasOperation_t trans_a = HIPBLAS_OP_T;
+            hipblasOperation_t trans_b = transb;
+            ROCM_CHECK(hipblasLtMatmulDescSetAttribute(matmul, HIPBLASLT_MATMUL_DESC_TRANSA, &trans_a, sizeof(int32_t)));
+            ROCM_CHECK(hipblasLtMatmulDescSetAttribute(matmul, HIPBLASLT_MATMUL_DESC_TRANSB, &trans_b, sizeof(int32_t)));
+        }
+        else {
+            ROCM_CHECK(hipblasLtMatrixLayoutCreate(&ADesc, Atype_, m, k, lda));
+            ROCM_CHECK(hipblasLtMatrixLayoutCreate(&BDesc, Btype_, k, n, ldb));
+            ROCM_CHECK(hipblasLtMatrixLayoutCreate(&CDesc, Ctype_, m, n, ldc));
+            hipblasOperation_t trans_a = transa;
+            hipblasOperation_t trans_b = transb;
+            ROCM_CHECK(hipblasLtMatmulDescSetAttribute(matmul, HIPBLASLT_MATMUL_DESC_TRANSA, &trans_a, sizeof(int32_t)));
+            ROCM_CHECK(hipblasLtMatmulDescSetAttribute(matmul, HIPBLASLT_MATMUL_DESC_TRANSB, &trans_b, sizeof(int32_t)));
+        }
 
         hipblasLtEpilogue_t epilogue_ = epilogue;
         ROCM_CHECK(
@@ -507,6 +533,19 @@ void hipblasMMWrapper::GemmBiasAct(hipblasOperation_t        transa,
         ROCM_CHECK(hipblasLtMatmulDescSetAttribute(
             matmul, HIPBLASLT_MATMUL_DESC_BIAS_DATA_TYPE, &bias_data_type, sizeof(bias_data_type)));
         ROCM_CHECK(hipblasLtMatmulDescSetAttribute(matmul, HIPBLASLT_MATMUL_DESC_BIAS_POINTER, &bias, sizeof(void*)));
+
+        if (scale_A) {
+            hipblasLtMatmulMatrixScale_t scale_mode = HIPBLASLT_MATMUL_MATRIX_SCALE_OUTER_VEC_32F;
+            ROCM_CHECK(hipblasLtMatmulDescSetAttribute(
+                matmul, HIPBLASLT_MATMUL_DESC_A_SCALE_MODE, &scale_mode, sizeof(uint32_t)));
+            ROCM_CHECK(hipblasLtMatmulDescSetAttribute(
+                matmul, HIPBLASLT_MATMUL_DESC_B_SCALE_MODE, &scale_mode, sizeof(uint32_t)));
+
+            ROCM_CHECK(hipblasLtMatmulDescSetAttribute(
+                matmul, HIPBLASLT_MATMUL_DESC_A_SCALE_POINTER, &scale_A, sizeof(scale_A)));
+            ROCM_CHECK(hipblasLtMatmulDescSetAttribute(
+                matmul, HIPBLASLT_MATMUL_DESC_B_SCALE_POINTER, &scale_B, sizeof(scale_B)));
+        }
 
         const int                        request_solutions = 1;
         hipblasLtMatmulHeuristicResult_t heuristicResult[request_solutions];
