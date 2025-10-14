@@ -32,7 +32,8 @@ cd RTP-LLM
 # --config=rocm build target for AMD
 bazelisk build //rtp_llm:rtp_llm --verbose_failures --config=cuda12_6 --test_output=errors --test_env="LOG_LEVEL=INFO"  --jobs=64
 
-ln  -sf `pwd`/bazel-out/k8-opt/bin/rtp_llm/cpp/proto/model_rpc_service_pb2.py  `pwd`/rtp_llm/cpp/proto/
+ln  -sf `pwd`/bazel-out/k8-opt/bin/rtp_llm/cpp/model_rpc/proto/model_rpc_service_pb2_grpc.py  `pwd`/rtp_llm/cpp/model_rpc/proto/
+ln  -sf `pwd`/bazel-out/k8-opt/bin/rtp_llm/cpp/model_rpc/proto/model_rpc_service_pb2.py  `pwd`/rtp_llm/cpp/model_rpc/proto/model_rpc_service_pb2.py
 
 ```
 
