@@ -296,10 +296,15 @@ void CudaGraphRunner::initCaptureAttentionInputs(PyModelInputs& inputs, int max_
     inputs.attention_inputs.sequence_lengths = torch::ones({int(max_bs_)}, options_cpu_int32);
     inputs.attention_inputs.sequence_lengths = inputs.attention_inputs.sequence_lengths.pin_memory();
     // kv_cache_block_id_device [batch_size, block_num]
-    inputs.attention_inputs.kv_cache_block_id_device = torch::zeros(
-        {int(max_bs_), ((max_seq_len_ + seq_size_per_block_ - 1) / seq_size_per_block_)}, options_cuda_int32);
-    inputs.attention_inputs.kv_cache_block_id_host = torch::zeros(
-        {int(max_bs_), ((max_seq_len_ + seq_size_per_block_ - 1) / seq_size_per_block_)}, options_cpu_int32);
+    inputs.attention_inputs.kv_cache_block_id_device =
+        torch::full({int(max_bs_), ((max_seq_len_ + seq_size_per_block_ - 1) / seq_size_per_block_)},
+                    kv_cache_block_offset_,
+                    options_cuda_int32);
+    inputs.attention_inputs.kv_cache_block_id_host =
+        torch::full({int(max_bs_), ((max_seq_len_ + seq_size_per_block_ - 1) / seq_size_per_block_)},
+                    kv_cache_block_offset_,
+                    options_cpu_int32);
+
     // padding_offset [max_num_token_, int32] (for attention padding)
     inputs.attention_inputs.padding_offset = torch::zeros({int(max_seq_len_ * max_bs_)}, options_cpu_int32);
     inputs.attention_inputs.padding_offset = inputs.attention_inputs.padding_offset.pin_memory();
