@@ -3,6 +3,7 @@
 #include "datatype_interface.h"
 #include "TensorDataManipulation.h"
 #include <hip/hip_runtime.h>
+#include "autil/Scope.h"
 
 namespace rtp_llm {
 namespace rocm {
@@ -114,6 +115,7 @@ void hipblasMMWrapper::FP8_Gemm(hipblasOperation_t transa,
     hipblasLtMatrixLayout_t ADesc, BDesc, CDesc;
     hipblasLtMatmulDesc_t matmul;
     ROCM_CHECK(hipblasLtMatmulDescCreate(&matmul, HIPBLAS_COMPUTE_32F, computeType_));
+    autil::ScopeGuard guard_matmul([&]() { hipblasLtMatmulDescDestroy(matmul); });
 
     RTP_LLM_CHECK_WITH_INFO(
         Atype_ == HIP_R_8F_E4M3_FNUZ,
@@ -147,6 +149,9 @@ void hipblasMMWrapper::FP8_Gemm(hipblasOperation_t transa,
         ROCM_CHECK(hipblasLtMatmulDescSetAttribute(matmul, HIPBLASLT_MATMUL_DESC_TRANSA, &trans_a, sizeof(int32_t)));
         ROCM_CHECK(hipblasLtMatmulDescSetAttribute(matmul, HIPBLASLT_MATMUL_DESC_TRANSB, &trans_b, sizeof(int32_t)));
     }
+    autil::ScopeGuard guard_A([&]() { hipblasLtMatrixLayoutDestroy(ADesc); });
+    autil::ScopeGuard guard_B([&]() { hipblasLtMatrixLayoutDestroy(BDesc); });
+    autil::ScopeGuard guard_C([&]() { hipblasLtMatrixLayoutDestroy(CDesc); });
 
     hipblasLtMatmulMatrixScale_t a_mode = HIPBLASLT_MATMUL_MATRIX_SCALE_OUTER_VEC_32F;
     hipblasLtMatmulMatrixScale_t b_mode = HIPBLASLT_MATMUL_MATRIX_SCALE_OUTER_VEC_32F;
@@ -200,12 +205,6 @@ void hipblasMMWrapper::FP8_Gemm(hipblasOperation_t transa,
                                                     stream_);
         ROCM_CHECK(blaslt_status);
     }
-
-    ROCM_CHECK(hipblasLtMatmulDescDestroy(matmul));
-    ROCM_CHECK(hipblasLtMatrixLayoutDestroy(ADesc));
-    ROCM_CHECK(hipblasLtMatrixLayoutDestroy(BDesc));
-    ROCM_CHECK(hipblasLtMatrixLayoutDestroy(CDesc));
-    
 }
 
 
@@ -276,6 +275,7 @@ void hipblasMMWrapper::Gemm(hipblasOperation_t transa,
         hipblasLtMatrixLayout_t ADesc, BDesc, CDesc;
         hipblasLtMatmulDesc_t matmul;
         ROCM_CHECK(hipblasLtMatmulDescCreate(&matmul, HIPBLAS_COMPUTE_32F, computeType_));
+        autil::ScopeGuard guard_matmul([&]() { hipblasLtMatmulDescDestroy(matmul); });
 
         if ((use_swizzleA_ || test_swizzleA_) && transa==HIPBLAS_OP_N && (Atype_ == HIP_R_16BF || Atype_ == HIP_R_16F)){
             ROCM_CHECK(hipblasLtMatrixLayoutCreate(&ADesc, Atype_, k, m, k));
@@ -301,7 +301,10 @@ void hipblasMMWrapper::Gemm(hipblasOperation_t transa,
             ROCM_CHECK(hipblasLtMatmulDescSetAttribute(matmul, HIPBLASLT_MATMUL_DESC_TRANSB, &trans_b, sizeof(int32_t)));
         }
                
-        
+        autil::ScopeGuard guard_A([&]() { hipblasLtMatrixLayoutDestroy(ADesc); });
+        autil::ScopeGuard guard_B([&]() { hipblasLtMatrixLayoutDestroy(BDesc); });
+        autil::ScopeGuard guard_C([&]() { hipblasLtMatrixLayoutDestroy(CDesc); });
+
         const int                        request_solutions = 1;
         hipblasLtMatmulHeuristicResult_t heuristicResult[request_solutions];
         int                              returnedAlgoCount = 0;
@@ -367,11 +370,6 @@ void hipblasMMWrapper::Gemm(hipblasOperation_t transa,
                                      getHipBlasDataType(computeType_),
                                      HIPBLAS_GEMM_DEFAULT));
         }
-
-        ROCM_CHECK(hipblasLtMatrixLayoutDestroy(ADesc));
-        ROCM_CHECK(hipblasLtMatrixLayoutDestroy(BDesc));
-        ROCM_CHECK(hipblasLtMatrixLayoutDestroy(CDesc));
-        ROCM_CHECK(hipblasLtMatmulDescDestroy(matmul));
     }
 }
 
@@ -483,11 +481,16 @@ void hipblasMMWrapper::GemmBiasAct(hipblasOperation_t        transa,
     } else {
         hipblasLtMatrixLayout_t ADesc, BDesc, CDesc;
         ROCM_CHECK(hipblasLtMatrixLayoutCreate(&ADesc, Atype_, m, k, lda));
+        autil::ScopeGuard guard_A([&]() { hipblasLtMatrixLayoutDestroy(ADesc); });
         ROCM_CHECK(hipblasLtMatrixLayoutCreate(&BDesc, Btype_, k, n, ldb));
+        autil::ScopeGuard guard_B([&]() { hipblasLtMatrixLayoutDestroy(BDesc); });
         ROCM_CHECK(hipblasLtMatrixLayoutCreate(&CDesc, Ctype_, m, n, ldc));
+        autil::ScopeGuard guard_C([&]() { hipblasLtMatrixLayoutDestroy(CDesc); });
 
         hipblasLtMatmulDesc_t matmul;
         ROCM_CHECK(hipblasLtMatmulDescCreate(&matmul, HIPBLAS_COMPUTE_32F, HIP_R_32F));
+        autil::ScopeGuard guard_matmul([&]() { hipblasLtMatmulDescDestroy(matmul); });
+
         hipblasOperation_t trans_a = transa;
         hipblasOperation_t trans_b = transb;
         ROCM_CHECK(hipblasLtMatmulDescSetAttribute(matmul, HIPBLASLT_MATMUL_DESC_TRANSA, &trans_a, sizeof(int32_t)));
@@ -531,11 +534,6 @@ void hipblasMMWrapper::GemmBiasAct(hipblasOperation_t        transa,
                                    workSpace,
                                    workspaceSize,
                                    stream_));
-
-        ROCM_CHECK(hipblasLtMatrixLayoutDestroy(ADesc));
-        ROCM_CHECK(hipblasLtMatrixLayoutDestroy(BDesc));
-        ROCM_CHECK(hipblasLtMatrixLayoutDestroy(CDesc));
-        ROCM_CHECK(hipblasLtMatmulDescDestroy(matmul));
     }
 }
 
