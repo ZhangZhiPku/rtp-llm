@@ -289,7 +289,6 @@ class GptInitModelParameters:
     layer_num: int
     layernorm_eps: float
     layernorm_type: str
-    load_balance_policy_name: str
     load_cache_timeout_ms: int
     local_rank: int
     logit_scale: float
@@ -354,7 +353,6 @@ class GptInitModelParameters:
     size_per_head: int
     softmax_extra_scale: float
     special_tokens: SpecialTokens
-    sync_status_interval_ms: int
     tokenizer_path: str
     tp_nccl_port: int
     tp_rank: int
@@ -608,6 +606,10 @@ class GptInitModelParameters:
             max_block_size_per_item=get_env_int("MAX_BLOCK_SIZE_PER_ITEM", 16),
             threefs_read_iov_size=get_env_int("THREEFS_READ_IOV_SIZE", 1 << 32),
             threefs_write_iov_size=get_env_int("THREEFS_WRITE_IOV_SIZE", 1 << 32),
+            memory_block_cache_size_mb=get_env_int("MEMORY_BLOCK_CACHE_SIZE_MB", 0),
+            memory_block_cache_sync_timeout_ms=get_env_int(
+                "MEMORY_BLOCK_CACHE_SYNC_TIMEOUT_MS", 10000
+            ),
         )
 
         enable_detail_log = get_env_bool("ENABLE_DETAIL_LOG", False)
@@ -649,12 +651,16 @@ class GptInitModelParameters:
             rocm_hipblaslt_config=get_env_str(
                 "ROCM_HIPBLASLT_CONFIG", "gemm_config.csv"
             ),
+            use_swizzleA = (
+                get_env_bool("USE_SWIZZLEA", False)
+            ),
             ft_disable_custom_ar=get_env_bool("FT_DISABLE_CUSTOM_AR", True),
             enable_cuda_graph=get_env_bool("ENABLE_CUDA_GRAPH", False),
             enable_cuda_graph_debug_mode=get_env_bool(
                 "ENABLE_CUDA_GRAPH_DEBUG_MODE", False
             ),
             use_aiter_pa=get_env_bool("USE_AITER_PA", True),
+            use_asm_pa=get_env_bool("USE_ASM_PA", True),
             enable_native_cuda_graph=get_env_bool("ENABLE_NATIVE_CUDA_GRAPH", False),
             num_native_cuda_graph=get_env_int("NUM_NATIVE_CUDA_GRAPH", 200),
         )
@@ -715,7 +721,10 @@ class GptInitModelParameters:
         # SchedulerConfig
         self.gpt_init_params.scheduler_config = SchedulerConfig(
             use_batch_decode_scheduler=get_env_bool("USE_BATCH_DECODE_SCHEDULER"),
+            use_gather_batch_scheduler=get_env_bool("USE_GATHER_BATCH_SCHEDULER"),
         )
+        if self.gpt_init_params.scheduler_config.use_gather_batch_scheduler and self.gpt_init_params.scheduler_config.use_batch_decode_scheduler:
+            raise ValueError("use_gather_batch_scheduler and use_batch_decode_scheduler cannot be true at the same time")
 
         # BatchDecodeSchedulerConfig
         self.gpt_init_params.batch_decode_scheduler_config = BatchDecodeSchedulerConfig(
@@ -762,11 +771,6 @@ class GptInitModelParameters:
 
         # MiscellaneousConfig
         self.gpt_init_params.misc_config = MiscellaneousConfig(
-            load_balance=get_env_int("LOAD_BALANCE", 0),
-            step_records_time_range=get_env_int(
-                "STEP_RECORDS_TIME_RANGE", 60 * 1000 * 1000
-            ),
-            step_records_max_size=get_env_int("STEP_RECORDS_MAX_SIZE", 1000),
             disable_pdl=get_env_bool("DISABLE_PDL", True),
             aux_string=get_env_str("AUX_STRING", ""),
         )
@@ -822,14 +826,14 @@ class GptInitModelParameters:
                     inter_size
                     + (
                         get_pad_size(inter_size, align_size)
-                        if self.quant_algo.isQuant()
+                        if (self.quant_algo.isQuant() or self.gpt_init_params.hw_kernel_config.use_swizzleA)
                         else 0
                     )
                 )
             self.layer_inter_padding_size = layer_inter_padding_size
         self.inter_padding_size = self.inter_size + (
             get_pad_size(self.inter_size, align_size)
-            if self.quant_algo.isQuant()
+            if (self.quant_algo.isQuant() or self.gpt_init_params.hw_kernel_config.use_swizzleA)
             else 0
         )
         if self.head_num_kv <= 0:
@@ -1114,26 +1118,6 @@ class GptInitModelParameters:
                 self.py_env_configs.pd_separation_config.decode_entrance
             )
             logging.info(f"decode_entrance: {self.decode_entrance}")
-
-            if (not self.decode_entrance and self.role_type in [RoleType.PREFILL]) or (
-                self.decode_entrance and self.role_type in [RoleType.DECODE]
-            ):
-                self.load_balance_policy_name = (
-                    self.py_env_configs.pd_separation_config.load_balance_policy_name
-                )
-                logging.info(
-                    f"load_balance_policy_name: {self.load_balance_policy_name}"
-                )
-                policy_list = ["RR", "WRR"]
-                if not self.load_balance_policy_name in policy_list:
-                    raise Exception(
-                        f"load_balance_policy_name {self.load_balance_policy_name} "
-                        f"is not right, it must in {policy_list}"
-                    )
-                self.sync_status_interval_ms = (
-                    self.py_env_configs.pd_separation_config.sync_status_interval_ms
-                )
-                logging.info(f"sync_status_interval_ms: {self.sync_status_interval_ms}")
 
         self.scheduler_reserve_resource_ratio = int(
             os.environ.get("SCHEDUlER_RESERVE_RESOURCE_RATIO", 5)

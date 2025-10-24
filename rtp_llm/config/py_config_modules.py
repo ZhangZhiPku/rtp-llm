@@ -78,7 +78,6 @@ class ModelConfig:
         self.use_float32: bool = False
         self.original_checkpoint_path: Optional[str] = None
         self.mla_ops_type: str = "AUTO"
-        self.parallel_batch: bool = False
         self.ft_plugin_path: Optional[str] = None
         self.weight_type: Optional[str] = None
 
@@ -111,7 +110,6 @@ class ModelConfig:
             "ORIGINAL_CHECKPOINT_PATH", self.original_checkpoint_path
         )
         self.mla_ops_type = os.environ.get("MLA_OPS_TYPE", self.mla_ops_type)
-        self.parallel_batch = get_env_bool("PARALLEL_BATCH", self.parallel_batch)
         self.ft_plugin_path = os.environ.get("FT_PLUGIN_PATH", self.ft_plugin_path)
         self.weight_type = os.environ.get("WEIGHT_TYPE", self.weight_type)
         self.task_type = os.environ.get("TASK_TYPE", self.task_type)
@@ -143,7 +141,6 @@ class ModelConfig:
             f"use_float32: {self.use_float32}\n"
             f"original_checkpoint_path: {self.original_checkpoint_path}\n"
             f"mla_ops_type: {self.mla_ops_type}\n"
-            f"parallel_batch: {self.parallel_batch}\n"
             f"ft_plugin_path: {self.ft_plugin_path}\n"
             f"weight_type: {self.weight_type}\n"
             f"task_type: {self.task_type}\n"
@@ -658,10 +655,6 @@ class PdSeparationConfig:
         self.rdma_connect_retry_times: int = 0
         self.load_cache_timeout_ms: int = 5000
 
-        # Load balance configuration
-        self.load_balance_policy_name: str = "RR"
-        self.sync_status_interval_ms: int = 50
-
     def update_from_env(self):
         # Prefill related configuration
         self.prefill_retry_times = int(
@@ -700,14 +693,6 @@ class PdSeparationConfig:
             os.environ.get("LOAD_CACHE_TIMEOUT_MS", self.load_cache_timeout_ms)
         )
 
-        # Load balance configuration
-        self.load_balance_policy_name = os.environ.get(
-            "LOAD_BALANCE_POLICY_NAME", self.load_balance_policy_name
-        )
-        self.sync_status_interval_ms = int(
-            os.environ.get("SYNC_STATUS_INTERVAL_MS", self.sync_status_interval_ms)
-        )
-
     def to_string(self):
         return (
             f"prefill_retry_times: {self.prefill_retry_times}\n"
@@ -718,9 +703,7 @@ class PdSeparationConfig:
             f"decode_polling_kv_cache_step_ms: {self.decode_polling_kv_cache_step_ms}\n"
             f"decode_entrance: {self.decode_entrance}\n"
             f"rdma_connect_retry_times: {self.rdma_connect_retry_times}\n"
-            f"load_cache_timeout_ms: {self.load_cache_timeout_ms}\n"
-            f"load_balance_policy_name: {self.load_balance_policy_name}\n"
-            f"sync_status_interval_ms: {self.sync_status_interval_ms}"
+            f"load_cache_timeout_ms: {self.load_cache_timeout_ms}"
         )
 
 
@@ -759,9 +742,11 @@ class PyHwKernelConfig:
         self.enable_multi_block_mode: bool = True
         self.ft_disable_custom_ar: bool = True
         self.rocm_hipblaslt_config: str = "gemm_config.csv"
+        self.use_swizzleA = False
         self.enable_cuda_graph: bool = False
         self.enable_cuda_graph_debug_mode: bool = False
         self.use_aiter_pa: bool = True
+        self.use_asm_pa: bool = True
         self.enable_native_cuda_graph: bool = False
         self.num_native_cuda_graph: int = 200
 
@@ -780,6 +765,9 @@ class PyHwKernelConfig:
         self.rocm_hipblaslt_config = get_env_str(
             "ROCM_HIPBLASLT_CONFIG", self.rocm_hipblaslt_config
         )
+        self.use_swizzleA = get_env_bool(
+            "USE_SWIZZLEA", self.use_swizzleA
+        )
         self.enable_cuda_graph = get_env_bool(
             "ENABLE_CUDA_GRAPH", self.enable_cuda_graph
         )
@@ -787,6 +775,7 @@ class PyHwKernelConfig:
             "ENABLE_CUDA_GRAPH_DEBUG_MODE", self.enable_cuda_graph_debug_mode
         )
         self.use_aiter_pa = get_env_bool("USE_AITER_PA", self.use_aiter_pa)
+        self.use_asm_pa = get_env_bool("USE_ASM_PA", self.use_asm_pa)
         self.enable_native_cuda_graph = get_env_bool(
             "ENABLE_NATIVE_CUDA_GRAPH", self.enable_native_cuda_graph
         )
@@ -802,9 +791,11 @@ class PyHwKernelConfig:
             f"enable_multi_block_mode: {self.enable_multi_block_mode}\n"
             f"ft_disable_custom_ar: {self.ft_disable_custom_ar}\n"
             f"rocm_hipblaslt_config: {self.rocm_hipblaslt_config}\n"
+            f"use_swizzleA: {self.use_swizzleA}\n"
             f"enable_cuda_graph: {self.enable_cuda_graph}\n"
             f"enable_cuda_graph_debug_mode: {self.enable_cuda_graph_debug_mode}\n"
             f"use_aiter_pa: {self.use_aiter_pa}\n"
+            f"use_asm_pa: {self.use_asm_pa}\n"
             f"enable_native_cuda_graph: {self.enable_native_cuda_graph}\n"
             f"num_native_cuda_graph: {self.num_native_cuda_graph}"
         )

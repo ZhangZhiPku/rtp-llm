@@ -6,7 +6,7 @@ import torch
 from torch import dtype as _dtype
 
 import rtp_llm.ops  # isort:skip
-from libth_transformer.rtp_llm_ops import per_token_quant_fp8  # isort:skip
+from librtp_compute_ops.rtp_llm_ops import per_token_quant_fp8  # isort:skip
 
 
 class PerTokenFp8QuantTest(TestCase):
@@ -44,7 +44,7 @@ class PerTokenFp8QuantTest(TestCase):
         # dynamic quant
         q_out, scale = self.call_per_token_quant_fp8(x)
         torch_out = self.torch_scaled_fp8_quant(x, scale)
-        torch.equal(q_out.float(), torch_out.float())
+        self.assertTrue(torch.equal(q_out.float(), torch_out.float()))
 
     def test_per_token_fp8_quant(self):
         for params in itertools.product(

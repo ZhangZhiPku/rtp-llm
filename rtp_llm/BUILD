@@ -22,6 +22,10 @@ tensorrt = [
     "tensorrt-cu12-libs",
 ]
 
+flashinfer = [
+    "flashinfer-python",
+]
+
 xft_dep = select({
     "@//:using_arm": [],
     "//:xft_use_icx": [
@@ -97,7 +101,8 @@ requirement([
     "portalocker",
     "concurrent_log_handler",
     "aiter",
-] + tensorrt)
+    "fastsafetensors",
+] + tensorrt + flashinfer)
 
 filegroup(
     name = "cutlass_config",
@@ -209,7 +214,7 @@ py_library(
         "//rtp_llm/model_loader:loader",
         "//rtp_llm/models_py:models",
     ] + arch_dep + select({
-        "@//:using_cuda12": tensorrt,
+        "@//:using_cuda12": tensorrt + flashinfer,
         "//conditions:default": []
     }) + select({
         "@//:using_arm": [],
@@ -451,6 +456,16 @@ py_library(
     ]
 )
 
+py_library(
+    name = "rtp_llm_package_libs",
+    deps = [
+        ":rtp_llm_lib",
+    ],
+    data = [
+        "//rtp_llm/libs:whl_package_libs"
+    ]
+)
+
 py_package(
     name = "rtp_llm_frontend_package",
     deps = [
@@ -464,7 +479,7 @@ py_package(
 py_package(
     name = "rtp_llm_package",
     deps = [
-        ":rtp_llm_lib",
+        ":rtp_llm_package_libs",
     ] + jit_deps(),
     packages = [
         "rtp_llm",
@@ -529,6 +544,7 @@ whl_reqs = [
     "bitsandbytes",
     "portalocker",
     "concurrent_log_handler",
+    "flashinfer-python==0.2.5",
 ] + whl_deps() + platform_deps() + xft_dep
 
 py_wheel(
@@ -601,6 +617,8 @@ py_library(
     name = "testlib",
     data = [
         "//rtp_llm/test/model_test/fake_test/testdata:testdata",
+        "//:th_transformer",
+        "//:rtp_compute_ops",
     ],
     deps = [
         ":rtp_llm_lib",

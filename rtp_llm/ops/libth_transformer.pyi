@@ -9,7 +9,6 @@ __all__ = [
     "AttentionCommonInputs",
     "BatchDecodeSchedulerConfig",
     "CacheStoreConfig",
-    "Cm2ServiceClient",
     "ConcurrencyConfig",
     "DeviceExporter",
     "DeviceResourceConfig",
@@ -96,16 +95,6 @@ class CacheStoreConfig:
     ) -> None: ...
     def to_string(self) -> str: ...
     def update_from_env(self) -> None: ...
-
-class Cm2ServiceClient:
-    def __init__(
-        self, config_str: str, load_balance_policy_name: str, use_local: bool = False
-    ) -> None: ...
-    def __repr__(self) -> str: ...
-    def choose_host(self) -> Host:
-        """
-        Choose a host from the cm2 and load balancer
-        """
 
 class ConcurrencyConfig:
     concurrency_limit: int
@@ -466,7 +455,6 @@ class GptInitParameter:
     layer_num: int
     layernorm_eps: float
     layernorm_type: str
-    load_balance_policy_name: str
     load_cache_timeout_ms: int
     local_rank: int
     logit_scale: float
@@ -540,7 +528,6 @@ class GptInitParameter:
     softmax_extra_scale: float
     sp_config: SpeculativeExecutionConfig
     special_tokens: SpecialTokens
-    sync_status_interval_ms: int
     tokenizer_path: str
     tp_nccl_port: int
     tp_rank: int
@@ -594,9 +581,11 @@ class HWKernelConfig:
     enable_stable_scatter_add: bool
     ft_disable_custom_ar: bool
     rocm_hipblaslt_config: str
+    use_swizzleA: bool
     enable_cuda_graph: bool
     enable_cuda_graph_debug_mode: bool
     use_aiter_pa: bool
+    use_asm_pa: bool
     enable_native_cuda_graph: bool
     num_native_cuda_graph: int
     def __init__(
@@ -607,9 +596,11 @@ class HWKernelConfig:
         enable_multi_block_mode: bool = True,
         ft_disable_custom_ar: bool = True,
         rocm_hipblaslt_config: str = "gemm_config.csv",
+        use_swizzleA: bool = False,
         enable_cuda_graph: bool = False,
         enable_cuda_graph_debug_mode: bool = False,
         use_aiter_pa: bool = True,
+        use_asm_pa: bool = True,
         enable_native_cuda_graph: bool = False,
         num_native_cuda_graph: int = 200,
     ) -> None: ...
@@ -675,17 +666,11 @@ class WorkerStatusInfo:
     def __init__(self) -> None: ...
 
 class MiscellaneousConfig:
-    load_balance: int
-    step_records_max_size: int
-    step_records_time_range: int
     disable_pdl: bool
     aux_string: str
 
     def __init__(
         self,
-        load_balance: int = 0,
-        step_records_time_range: int = 60000000,
-        step_records_max_size: int = 1000,
         disable_pdl: bool = True,
         aux_string: str = "",
     ) -> None: ...
