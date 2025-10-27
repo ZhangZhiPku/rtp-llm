@@ -1,20 +1,21 @@
 from __future__ import annotations
+
+import logging
 import re
 import threading
 from typing import Any, Mapping
+
 import torch
+
 from rtp_llm.async_decoder_engine.async_model import AsyncModel
-# Assuming these imports are from your project and accessible
-from rtp_llm.model_loader.weight_module import WeightModule
-from rtp_llm.model_loader.ffn_weight import FfnWeight
 from rtp_llm.model_loader.loader import ModelLoader
 from rtp_llm.model_loader.model_weight_info import ModelWeights
-from .tipc import (
-    CudaIpcHelper,
-    CuIpcTensorMeta,
-    SharedMemIpcMeta,
-    SharedMemoryIPCHelper,
-)
+
+# Assuming these imports are from your project and accessible
+from rtp_llm.model_loader.weight_module import WeightModule
+
+from .tipc import CudaIpcHelper, SharedMemIpcMeta, SharedMemoryIPCHelper
+
 # Dictionary for renaming specific layer weight names from an external format
 # (e.g., 'verl') to the internal 'rtp-llm' format.
 RENAME_DICTIONARY = {
@@ -41,6 +42,7 @@ RENAME_DICTIONARY = {
     # ???
     "mlp.linear_fc1.weight": "",
 }
+
 
 def rename_function(layer_name: str) -> str:
     """
@@ -83,6 +85,7 @@ def rename_function(layer_name: str) -> str:
             return RENAME_DICTIONARY[name]
         return name
 
+
 class WeightManager:
     """
     Manages model weight updates, including renaming weights from an external
@@ -91,6 +94,7 @@ class WeightManager:
     as per the rtp-llm model's internal structure (e.g., for Tensor Parallelism (TP)
     or Pipeline Parallelism (PP)).
     """
+
     def __init__(self, model: AsyncModel) -> None:
         """
         Initializes the WeightManager with an AsyncModel instance.
@@ -201,9 +205,14 @@ class WeightManager:
             raise Exception(
                 f"Failed to build tensor from IPC description '{desc}' using method '{method}'. Tensor is None."
             )
+        logging.info(
+            f"RtpLLM Updating Weights: {name}, shape: {tensor.shape}, device: {tensor.device}, method: {method}"
+        )
 
         with torch.cuda.stream(self._working_stream):
             config = self._weights_loader.get_load_config()
+            tensor = tensor.to(self._device)
+
             if "layers" in name:
                 # This is a layer-specific weight
                 layer_id: int | None = self.extract_layer_number(name)
@@ -216,14 +225,21 @@ class WeightManager:
                 fail: bool = True
 
                 for receptor in self._weight_module.layer_weights[layer_id]:
-                    if receptor.name == name or ("ffn_weights" in name and receptor.name == "__ffn_weights__"):
+                    if receptor.name == name or (
+                        "ffn_weights" in name and receptor.name == "__ffn_weights__"
+                    ):
                         assert isinstance(receptor, WeightModule)
 
                         # split tensor into shards
-                        shard = receptor.update(tensor=tensor, device=self._device, load_config=config, module_name=name)
+                        shard = receptor.update(
+                            tensor=tensor,
+                            device=self._device,
+                            load_config=config,
+                            module_name=name,
+                        )
                         if isinstance(shard, dict):
                             shard = next(iter(shard.values()))
-                        
+
                         # update tensor weight
                         self._weights.update_layer_weight(
                             layer_id=layer_id, name=name, data=shard
@@ -237,7 +253,6 @@ class WeightManager:
 
             else:
                 # weight is global weight
-
                 name: str = rename_function(name)
                 fail: bool = True
                 for weight in self._weight_module.weights:
@@ -249,9 +264,7 @@ class WeightManager:
                         )
                         if isinstance(shard, dict):
                             shard = next(iter(shard.values()))
-                        self._weights.update_global_weight(
-                            name=name, data=shard
-                        )
+                        self._weights.update_global_weight(name=name, data=shard)
                         fail = False
 
                 if fail:

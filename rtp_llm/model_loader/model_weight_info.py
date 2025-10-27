@@ -586,7 +586,7 @@ class ModelDeployWeightInfo:
             is_ft_style_weight=database.is_ft_style,
             phy2log=self.config.phy2log,  # Notice use config, because phy2log init after ModelDeployWeightInfo.__init__
             exported_device=exported_device,
-            use_swizzleA=self._use_swizzleA
+            use_swizzleA=self._use_swizzleA,
         )
         return load_config
 
@@ -604,9 +604,7 @@ class ModelWeights:
     def set_layer_weight(self, layer_id: int, name: str, tensor: torch.Tensor):
         self.weights[layer_id][name] = tensor
 
-    def update_layer_weight(
-        self, layer_id: int, name: str, data: torch.Tensor
-    ):
+    def update_layer_weight(self, layer_id: int, name: str, data: torch.Tensor):
         if not isinstance(layer_id, int):
             raise TypeError(
                 f"Invalid 'layer_id' type. Expected an integer, but received {type(layer_id).__name__}.\n"
@@ -646,9 +644,8 @@ class ModelWeights:
 
     def get_global_weight(self, name: str) -> torch.Tensor:
         return self.global_weights[name]
-    
-    def update_global_weight(
-        self, name: str, data: torch.Tensor):
+
+    def update_global_weight(self, name: str, data: torch.Tensor):
         if not isinstance(name, str):
             raise TypeError(
                 f"Invalid 'name' type. Expected a string, but received {type(name).__name__}.\n"
@@ -697,12 +694,6 @@ class ModelWeights:
                 "Input error: The shape of your input tensor does not match the original tensor.\n"
                 f"Input tensor shape: {update_tensor.shape}\n"
                 f"Original tensor shape: {ori_tensor.shape}"
-            )
-        if ori_tensor.device != update_tensor.device:
-            raise ValueError(
-                "Input error: The device of your input tensor does not match the original tensor.\n"
-                f"Input tensor device: {update_tensor.device}\n"
-                f"Original tensor device: {ori_tensor.device}"
             )
         if ori_tensor.dtype != update_tensor.dtype:
             raise ValueError(
