@@ -75,7 +75,7 @@ class WeightManager:
     def mount(self, name: str, tensor: torch.Tensor) -> None:
 
         with torch.cuda.stream(self._working_stream):
-            tensor = tensor.to(self._device)
+            tensor = tensor.to(self._device, non_blocking=True)
             config = self._weights_loader.get_load_config()
 
             if "layers" in name:
