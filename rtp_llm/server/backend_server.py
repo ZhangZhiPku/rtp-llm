@@ -4,6 +4,7 @@ import logging
 import os
 import threading
 import time
+import traceback
 from typing import Any, Dict, List, Union
 
 import requests
@@ -22,11 +23,11 @@ from rtp_llm.embedding.embedding_endpoint import EmbeddingEndpoint
 from rtp_llm.lora.lora_manager import LoraManager
 from rtp_llm.metrics import AccMetrics, GaugeMetrics, kmonitor
 from rtp_llm.model_factory import ModelFactory
+from rtp_llm.model_loader.weight_manager import WeightManager
 from rtp_llm.openai.openai_endpoint import OpenaiEndpoint
 from rtp_llm.ops import EngineScheduleInfo, KVCacheInfo, WorkerStatusInfo
 from rtp_llm.server.backend_rpc_server_visitor import BackendRPCServerVisitor
 from rtp_llm.server.misc import format_exception
-from rtp_llm.model_loader.weight_manager import WeightManager
 from rtp_llm.server.worker_status import TaskInfo, WorkStatus
 from rtp_llm.structure.request_extractor import request_id_field_name
 from rtp_llm.utils.concurrency_controller import (
@@ -36,7 +37,6 @@ from rtp_llm.utils.concurrency_controller import (
 from rtp_llm.utils.fuser import _nfs_manager
 from rtp_llm.utils.time_util import Timer
 from rtp_llm.utils.version_info import VersionInfo
-import traceback
 
 StreamObjectType = Union[Dict[str, Any], BaseModel]
 
@@ -434,9 +434,10 @@ class BackendServer(object):
                 req={}, uri="internal_detach_physical_memory", is_wait=True
             )
         try:
+            torch.cuda.empty_cache()
             self.model.decoder_engine_.detach_physical_memory()
         except Exception as e:
-            print(e)
+            raise e
 
     def internal_detach_physical_memory(self):
         self.model.decoder_engine_.detach_physical_memory()
