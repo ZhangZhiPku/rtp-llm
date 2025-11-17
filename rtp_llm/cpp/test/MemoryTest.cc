@@ -224,6 +224,50 @@ TEST_F(MemoryTest, testPrivateAlloc) {
     EXPECT_EQ(status.fragment_chunk_count, 0);
 }
 
+TEST_F(MemoryTest, testVmemAllocate) {
+    int  device_id      = 0;
+    auto vmem_allocator = new Allocator<AllocatorType::CUDA>(device_id);
+
+    size_t free_bytes_1    = 0;
+    size_t total_bytes     = 0;
+    size_t allocation_size = 1024 * 1024 * 1024;  // 512 MB
+    cudaMemGetInfo(&free_bytes_1, &total_bytes);
+
+    auto ptr1 = vmem_allocator->malloc(allocation_size);
+    auto ptr2 = vmem_allocator->mallocPhysical(allocation_size);
+
+    EXPECT_EQ(ptr1 != nullptr, true);
+    EXPECT_EQ(ptr2 != nullptr, true);
+
+    size_t free_bytes_2 = 0;
+    cudaMemGetInfo(&free_bytes_2, &total_bytes);
+    EXPECT_EQ(free_bytes_1 - free_bytes_2, 2 * allocation_size);
+
+    vmem_allocator->free(&ptr1);
+    size_t free_bytes_4 = 0;
+    cudaMemGetInfo(&free_bytes_4, &total_bytes);
+    EXPECT_EQ(free_bytes_1 - free_bytes_4, allocation_size);
+
+    vmem_allocator->unmap();
+    size_t free_bytes_3 = 0;
+    cudaMemGetInfo(&free_bytes_3, &total_bytes);
+    EXPECT_EQ(free_bytes_1 - free_bytes_3, allocation_size);
+
+    /*
+    vmem_allocator->map();
+    size_t free_bytes_5 = 0;
+    cudaMemGetInfo(&free_bytes_5, &total_bytes);
+    EXPECT_EQ(free_bytes_1 - free_bytes_5, allocation_size);
+
+    vmem_allocator->unmap();
+    vmem_allocator->free(&ptr1);
+    vmem_allocator->map();
+    size_t free_bytes_6 = 0;
+    cudaMemGetInfo(&free_bytes_6, &total_bytes);
+    EXPECT_EQ(free_bytes_1 - free_bytes_6, 0);
+    */
+}
+
 TEST_F(MemoryTest, testMemoryTracker) {
     int  device_id                 = 0;
     auto basic_cuda_allocator      = new Allocator<AllocatorType::CUDA>(device_id);
