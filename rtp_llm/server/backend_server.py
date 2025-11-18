@@ -4,6 +4,7 @@ import logging
 import os
 import threading
 import time
+import traceback
 from typing import Any, Dict, List, Optional, Union
 
 import requests
@@ -22,11 +23,11 @@ from rtp_llm.embedding.embedding_endpoint import EmbeddingEndpoint
 from rtp_llm.lora.lora_manager import LoraManager
 from rtp_llm.metrics import AccMetrics, GaugeMetrics, kmonitor
 from rtp_llm.model_factory import ModelFactory
+from rtp_llm.model_loader.weight_manager import WeightManager
 from rtp_llm.openai.openai_endpoint import OpenaiEndpoint
 from rtp_llm.ops import EngineScheduleInfo, KVCacheInfo, WorkerStatusInfo
 from rtp_llm.server.backend_rpc_server_visitor import BackendRPCServerVisitor
 from rtp_llm.server.misc import format_exception
-from rtp_llm.model_loader.weight_manager import WeightManager
 from rtp_llm.server.worker_status import TaskInfo, WorkStatus
 from rtp_llm.structure.request_extractor import request_id_field_name
 from rtp_llm.utils.concurrency_controller import (
@@ -36,7 +37,6 @@ from rtp_llm.utils.concurrency_controller import (
 from rtp_llm.utils.fuser import _nfs_manager
 from rtp_llm.utils.time_util import Timer
 from rtp_llm.utils.version_info import VersionInfo
-import traceback
 
 StreamObjectType = Union[Dict[str, Any], BaseModel]
 
@@ -392,3 +392,60 @@ class BackendServer(object):
             return {"status": "ok"}
         except Exception as e:
             return {"status": "error", "details": traceback.format_exc()}
+
+    def detach_physical_memory(self):
+        """
+        Release physical GPU memory while retaining the virtual address space.
+        This method is intended for engines that support virtual memory. It
+        immediately unmaps and frees all **physical** backing memory without
+        releasing the reserved **virtual** addresses.  If any requests are still
+        in flight, the engine **must** wait for them to complete before
+        performing the detach operation.
+
+        Notes
+        -----
+        After a successful detach, the virtual addresses remain valid but
+        accessing them will raise a device page-fault until
+        :meth:`attach_physical_memory` is called.
+        """
+        if self.is_embedding:
+            raise Exception(
+                "This interface is not implemented for embedding models; it is only available for LLM models."
+            )
+        if not isinstance(self.model, AsyncModel):
+            raise Exception(f"{type(self.model)} has not implemented this interface.")
+        if g_parallel_info.is_master and g_parallel_info.world_size > 1:
+            self._gang_server.request_workers(
+                req={}, uri="internal_detach_physical_memory", is_wait=True
+            )
+        try:
+            torch.cuda.empty_cache()
+            self.model.decoder_engine_.detach_physical_memory()
+        except Exception as e:
+            raise e
+
+    def internal_detach_physical_memory(self):
+        self.model.decoder_engine_.detach_physical_memory()
+
+    def attach_physical_memory(self):
+        """
+        Re-attach / map physical memory to previously reserved virtual addresses.
+        For every virtual address range that was **reserved but not mapped**
+        (e.g., after :meth:`detach_physical_memory`), this method allocates
+        physical GPU memory and binds it to those ranges.  Virtual addresses that
+        already have physical backing are **not** re-allocated.
+        """
+        if self.is_embedding:
+            raise Exception(
+                "This interface is not implemented for embedding models; it is only available for LLM models."
+            )
+        if not isinstance(self.model, AsyncModel):
+            raise Exception(f"{type(self.model)} has not implemented this interface.")
+        if g_parallel_info.is_master and g_parallel_info.world_size > 1:
+            self._gang_server.request_workers(
+                req={}, uri="internal_attach_physical_memory", is_wait=True
+            )
+        self.model.decoder_engine_.attach_physical_memory()
+
+    def internal_attach_physical_memory(self):
+        self.model.decoder_engine_.attach_physical_memory()

@@ -78,8 +78,12 @@ BufferStatus DeviceBase::queryBufferStatus() {
 }
 
 BufferPtr DeviceBase::allocateBuffer(const BufferParams& params, const BufferHints& hints) {
-    return buffer_manager_->allocate(
-        {params.type, params.dims, params.allocation, nativeGraphCapturing() ? true : params.private_alloc}, hints);
+    return buffer_manager_->allocate({params.type,
+                                      params.dims,
+                                      params.allocation,
+                                      nativeGraphCapturing() ? true : params.private_alloc,
+                                      params.vmem_ctl},
+                                     hints);
 }
 
 BufferPtr DeviceBase::allocateBufferLike(const Buffer& buffer, const AllocationType atype, const BufferHints& hints) {
@@ -461,8 +465,9 @@ MultimodalEmbeddingOutput DeviceBase::multimodalEmbedding(const MultimodalEmbedd
     RUNTIME_ASSERT_OP_ARG(embeddings->typeSize() == features[0]->typeSize(),
                           "type size of embeddings and multimodal features should be equal.");
     RUNTIME_ASSERT_OP_ARG(embeddings->type() == features[0]->type(),
-        "data type of embeddings %d and multimodal features %d are not equal",
-        embeddings->type(), features[0]->type());
+                          "data type of embeddings %d and multimodal features %d are not equal",
+                          embeddings->type(),
+                          features[0]->type());
 
     for (int i = 0; i < mm_num; ++i) {
         auto& feature = features[i];
@@ -544,6 +549,16 @@ void DeviceBase::profileStart() {
 
 void DeviceBase::profileStop() {
     return;
+}
+
+void DeviceBase::detachPhysicalMemory() {
+    // maybe we can return true and log an error?
+    throw OpException(OpErrorType::ERROR_UNIMPLEMENTED);
+}
+
+void DeviceBase::attachPhysicalMemory() {
+    // maybe we can return true and log an error?
+    throw OpException(OpErrorType::ERROR_UNIMPLEMENTED);
 }
 
 }  // namespace rtp_llm

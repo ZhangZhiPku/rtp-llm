@@ -1,5 +1,6 @@
 import base64
 import json
+import logging
 from dataclasses import asdict, dataclass
 from multiprocessing import shared_memory
 
@@ -38,12 +39,12 @@ class SharedMemIpcMeta:
     that is backed by a `multiprocessing.shared_memory` segment.
     """
 
+    name: str  # tensor name
     shm_name: str  # The unique name of the shared memory block
     shape: torch.Size
     dtype: (
         torch.dtype
     )  # PyTorch dtype, will be converted to NumPy dtype for shared memory operations
-    stride: tuple[int, ...]  # Stride is essential for non-contiguous views
     offset_bytes: int  # Offset within the shared memory block, in bytes
     size_bytes: (
         int  # Total size of the tensor data within the shared memory block, in bytes
@@ -68,42 +69,9 @@ class SharedMemIpcMeta:
         # Convert specific types to serializable formats
         metadata_dict["shape"] = tuple(self.shape)
         metadata_dict["dtype"] = torch_dtype_to_str(self.dtype)
-        metadata_dict["stride"] = tuple(self.stride)  # Ensure stride is tuple
 
         json_string = json.dumps(metadata_dict)
         return base64.b64encode(json_string.encode("utf-8")).decode("utf-8")
-
-
-@dataclass
-class CuIpcTensorMeta:
-    """
-    Data class representing the metadata required to rebuild a torch.Tensor,
-    including considerations for sharing CUDA tensors.
-    """
-
-    dtype: torch.dtype
-    shape: torch.Size
-    stride: tuple[int, ...]
-    storage_device: int
-    storage_handle: bytes
-    storage_size_bytes: int
-    storage_offset_bytes: int
-    requires_grad: bool
-    ref_counter_handle: bytes
-    ref_counter_offset: int
-    event_handle: bytes
-    event_sync_required: bool
-
-    @classmethod
-    def decode(cls, encoded: str) -> "CuIpcTensorMeta":
-        """Decodes a hex string back into a CuIpcTensorMeta instance."""
-        decoded_bytes = bytes.fromhex(encoded)
-        return cls(raw=decoded_bytes)
-
-    def encode(self) -> str:
-        """Encodes this CuIpcTensorMeta instance into a base64 string."""
-        # Take the raw bytes, encode them using base64, and decode the result into a string
-        return base64.b64encode(self.raw).decode("utf-8")
 
 
 class SharedMemoryIPCHelper:
@@ -115,7 +83,7 @@ class SharedMemoryIPCHelper:
         pass
 
     def build_tensor_meta(
-        self, t: torch.Tensor, shm: shared_memory.SharedMemory
+        self, name: str, t: torch.Tensor, offset: int, shm: shared_memory.SharedMemory
     ) -> SharedMemIpcMeta:
         """
         Copies tensor data to a given shared memory (SHM) object, builds its meta data, and returns it.
@@ -123,6 +91,7 @@ class SharedMemoryIPCHelper:
 
         Args:
             t (torch.Tensor): The PyTorch tensor whose data is to be copied.
+            offset (int): write offset of given tensor.
             shm (shared_memory.SharedMemory): The pre-existing shared memory object
                                               where the tensor data will be copied.
 
@@ -133,51 +102,42 @@ class SharedMemoryIPCHelper:
         Raises:
             RuntimeError: If data copying fails or the shared memory is too small.
         """
-        # Move tensor to CPU if it's on CUDA, as shared memory typically operates on CPU memory
-        if t.is_cuda:
-            t = t.cpu()
 
-        # Ensure the tensor is contiguous for straightforward sharing.
-        # This creates a copy if it's not already contiguous, but simplifies shared memory view.
-        if not t.is_contiguous():
-            t = t.contiguous()
+        if not isinstance(t, torch.Tensor):
+            raise TypeError(
+                f"Unsupported type for sharing: {type(t)}. Expected torch.Tensor."
+            )
 
-        # Calculate required size in bytes
-        tensor_size_bytes = (
-            t.numel() * t.itemsize
-        )  # t.itemsize is size of one element in bytes
+        if not t.is_cpu:
+            raise ValueError("SHM IPC can only be used with CPU tensors.")
 
-        # Validate if the provided shared memory block is large enough
-        if shm.size < tensor_size_bytes:
+        t = t.contiguous()
+        tensor_size_bytes = t.numel() * t.itemsize
+        if shm.size < offset + tensor_size_bytes:
             raise RuntimeError(
                 f"Provided shared memory block '{shm.name}' (size: {shm.size} bytes) "
                 f"is too small to hold tensor (required: {tensor_size_bytes} bytes)."
             )
 
         try:
-            # Create a NumPy array that views the shared memory's buffer
-            # Use t.numpy() to get a NumPy array view (zero-copy for CPU tensors).
-            # Then copy data into the shared memory's buffer.
-            # Important: The dtype for the NumPy array viewing shm.buf must match the tensor's data type
-            shared_np_array = np.ndarray(
-                t.shape,
-                dtype=str_to_np_dtype(torch_dtype_to_str(t.dtype)),
-                buffer=shm.buf,
+            buffer = np.ndarray(
+                [tensor_size_bytes], dtype=np.uint8, buffer=shm.buf, offset=offset
             )
 
-            # Copy data from PyTorch tensor's NumPy view to the shared NumPy array
-            shared_np_array[:] = t.numpy()[:]
+            buffer[:] = t.flatten().view(dtype=torch.uint8).numpy()[:]
 
-            # Get the name of the shared memory block from the provided object
             shm_name = shm.name
-
             meta = SharedMemIpcMeta(
+                name=name,
                 shm_name=shm_name,
-                shape=t.size(),
+                shape=t.shape,
                 dtype=t.dtype,
-                stride=t.stride(),
-                offset_bytes=0,  # Assuming the tensor starts at the beginning of the SHM block
+                offset_bytes=offset,
                 size_bytes=tensor_size_bytes,
+            )
+
+            logging.info(
+                f"tipc build tensor transport meta(shm), name={shm_name}, dtype={t.dtype}, shape={t.shape}"
             )
             return meta
 
@@ -201,27 +161,22 @@ class SharedMemoryIPCHelper:
             # Attach to the shared memory block
             shm = shared_memory.SharedMemory(name=m.shm_name)
 
-            # Create a NumPy array view into the shared memory
-            np_dtype = str_to_np_dtype(
-                torch_dtype_to_str(m.dtype)
-            )  # Convert PyTorch dtype string to NumPy dtype
-            shared_np_array = np.ndarray(
-                m.shape,
-                dtype=np_dtype,
-                buffer=shm.buf,
-                offset=m.offset_bytes,
-                strides=[s * m.dtype.itemsize for s in m.stride],
+            buffer = np.ndarray(
+                [m.size_bytes], dtype=np.uint8, buffer=shm.buf, offset=m.offset_bytes
             )
 
             # Create a PyTorch tensor from the NumPy array (zero-copy on CPU)
-            rebuilt_tensor = torch.from_numpy(shared_np_array)
+            rebuilt_tensor = torch.from_numpy(buffer)
+            rebuilt_tensor = rebuilt_tensor.view(dtype=m.dtype)
+            rebuilt_tensor = rebuilt_tensor.view(size=m.shape)
 
-            # clone tensor here, so that we can close shm obj ASAP.
-            rebuilt_tensor = rebuilt_tensor.clone()
+            # Important: The `shm` object reference in `_active_shm_blocks` must be kept alive
+            # until the tensor is no longer needed, and then explicitly closed.
+            # You might want a separate method for closing/unlinking.
+            tensor = rebuilt_tensor.clone()
             if shm:
                 shm.close()
-
-            return rebuilt_tensor
+            return tensor
 
         except FileNotFoundError:
             raise RuntimeError(
@@ -258,7 +213,11 @@ class CudaIpcHelper:
                 "to ensure consistent memory layout. Consider calling .contiguous() first."
             )
 
-        return CUDA.build_cuipc_meta(t)
+        meta = CUDA.build_cuipc_meta(t)
+        logging.info(
+            f"tipc build tensor transport meta(cuipc), dtype={t.dtype}, shape={t.shape}"
+        )
+        return meta
 
     def build_from_meta(self, m) -> torch.Tensor:
         """
