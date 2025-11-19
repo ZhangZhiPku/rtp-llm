@@ -235,6 +235,7 @@ py_test(
     tags = [
         "rocm",
     ],
+    timeout = "eternal",
 )
 
 py_test(
@@ -441,4 +442,25 @@ py_test(
         "//rtp_llm:rtp_llm_lib",
     ],
     exec_properties = {'gpu':'A10'},
+)
+
+py_test(
+    name = "rocm_pertensor_int8_gemm_op_test",
+    srcs = [
+        "gemm/rocm_pertensor_int8_gemm_op_test.py"
+    ],
+    data = [
+        "//:th_transformer",
+        ":rocm_test_ops",
+    ],
+    deps = [
+        "//rtp_llm:torch",
+        "//rtp_llm:rtp_llm_lib",
+    ],
+    env = {
+        "DEVICE_RESERVE_MEMORY_BYTES": "1024000",
+    },
+    tags = [
+        "rocm",
+    ],
 )

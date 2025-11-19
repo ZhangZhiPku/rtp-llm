@@ -393,13 +393,8 @@ AttentionModuleOutput CudaDevice::decoderSelfAttention(const AttentionModulePara
                 auto rope_buffer = torchTensor2Buffer(rope_tensor);
 
                 rope_ = allocateBuffer(
-                    {
-                        rope_buffer->type(), 
-                        rope_buffer->shape(), 
-                        AllocationType::DEVICE, 
-                        false, VmemCtl::ForcePhysical
-                    }, {"rope cache"}
-                );
+                    {rope_buffer->type(), rope_buffer->shape(), AllocationType::DEVICE, false, VmemCtl::ForcePhysical},
+                    {"rope cache"});
                 copy({*rope_, *rope_buffer});
             }
         });

@@ -30,8 +30,8 @@ public:
     TrackerStatus getTrackerStatus() const;
 
     void* mallocPhysical(size_t size) override;
-    void map() override;
-    void unmap() override;
+    void  map() override;
+    void  unmap() override;
 
 private:
     std::vector<MemoryChunk*> getChunks() const;

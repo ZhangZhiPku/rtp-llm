@@ -39,29 +39,29 @@ public:
     void attachPhysicalMemory();
 
 private:
-    void                                                   _init(int64_t                                                model_rpc_port,
-                                                                 int64_t                                                http_port,
-                                                                 const EngineInitParams                        maga_init_params,
-                                                                 py::object                                             mm_process_engine,
-                                                                 std::unique_ptr<ProposeModelEngineInitParams> propose_params,
-                                                                 py::object                                             token_processor);
+    void                                          _init(int64_t                                       model_rpc_port,
+                                                        int64_t                                       http_port,
+                                                        const EngineInitParams                        maga_init_params,
+                                                        py::object                                    mm_process_engine,
+                                                        std::unique_ptr<ProposeModelEngineInitParams> propose_params,
+                                                        py::object                                    token_processor);
     EngineInitParams                              initModel(py::object model);
     std::unique_ptr<ProposeModelEngineInitParams> initProposeModel(py::object propose_model);
-    void initRPCServer(const EngineInitParams                        maga_init_params,
-                       py::object                                             mm_process_engine,
-                       std::unique_ptr<ProposeModelEngineInitParams> propose_params,
-                       py::object                                             token_processor);
+    void                                          initRPCServer(const EngineInitParams                        maga_init_params,
+                                                                py::object                                    mm_process_engine,
+                                                                std::unique_ptr<ProposeModelEngineInitParams> propose_params,
+                                                                py::object                                    token_processor);
 
 private:
     std::unique_ptr<RpcServiceImpl> model_rpc_service_;
     std::shared_ptr<HttpApiServer>  http_server_;
-    std::unique_ptr<grpc::Server>            grpc_server_;
-    std::thread                              grpc_server_thread_;
-    std::atomic<bool>                        is_server_ready_{false};
-    std::atomic<bool>                        is_server_shutdown_{false};
-    size_t                                   model_id_ = 0;
+    std::unique_ptr<grpc::Server>   grpc_server_;
+    std::thread                     grpc_server_thread_;
+    std::atomic<bool>               is_server_ready_{false};
+    std::atomic<bool>               is_server_shutdown_{false};
+    size_t                          model_id_ = 0;
 };
 
 void registerRtpLLMOp(const py::module& m);
 
-}
+}  // namespace rtp_llm

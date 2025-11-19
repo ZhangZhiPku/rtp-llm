@@ -9,15 +9,12 @@ import torch
 import torch.nn.functional as F
 
 import rtp_llm.models_py.modules.utils as utils
+import rtp_llm.ops.compute_ops as compute_ops
 from rtp_llm.models_py.modules.ep.expert_location_dispatch import (
     ExpertLocationDispatchInfo,
     topk_ids_logical_to_physical,
 )
-
-if utils.is_cuda():
-    from librtp_compute_ops.rtp_llm_ops import moe_topk_softmax
-else:
-    logging.warning("can't import from rtp_llm_ops, only support cuda!")
+from rtp_llm.models_py.modules.ep.group_topk_ref import biased_grouped_topk_impl
 
 
 def fused_topk_native(
@@ -60,7 +57,7 @@ def fused_topk(
         M, topk, dtype=torch.int32, device=hidden_states.device
     )
 
-    moe_topk_softmax(
+    compute_ops.moe_topk_softmax(
         topk_weights,
         topk_ids,
         token_expert_indicies,
@@ -88,7 +85,25 @@ def select_experts(
     routed_scaling_factor: Optional[float] = None,
     num_token_non_padded: Optional[torch.Tensor] = None,
     expert_location_dispatch_info: Optional[ExpertLocationDispatchInfo] = None,
+    num_fused_shared_experts: int = 0,
+    apply_routed_scaling_factor_on_output: Optional[bool] = False,
 ):
+    if use_grouped_topk:
+        assert topk_group is not None
+        assert num_expert_group is not None
+        topk_weights, topk_ids = biased_grouped_topk_impl(
+            hidden_states=hidden_states,
+            gating_output=router_logits,
+            correction_bias=correction_bias,
+            topk=top_k,
+            renormalize=renormalize,
+            num_expert_group=num_expert_group,
+            topk_group=topk_group,
+            num_fused_shared_experts=num_fused_shared_experts,
+            routed_scaling_factor=routed_scaling_factor,
+        )
+        return topk_weights, topk_ids
+
     if torch_native and custom_routing_function is None:
         assert (
             num_token_non_padded is None

@@ -352,7 +352,11 @@ class AtomicWeight(WeightModule):
                 before_merge_tensors.append(
                     ckpt_weight.merge_fun(
                         [
-                            x.to(device)
+                            (
+                                x.unsqueeze(-1).to(device)
+                                if "scale" in name and x.dim() == 1
+                                else x.to(device)
+                            )
                             for x in tensor_source.load_tensor(name, convert_type)
                         ]
                     )

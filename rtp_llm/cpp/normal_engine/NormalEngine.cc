@@ -195,7 +195,7 @@ absl::Status NormalEngine::initSystemPrompt() {
     return absl::OkStatus();
 }
 
-KVCacheInfo NormalEngine::getCacheStatusInfo(int64_t latest_version, bool need_cache_keys) const {
+KVCacheInfo NormalEngine::getCacheStatusInfo(int64_t latest_version, bool need_cache_keys) {
     return resource_context_.cache_manager->getKVCacheInfo(latest_version, need_cache_keys);
 }
 
@@ -315,7 +315,8 @@ absl::Status NormalEngine::step() {
                                                                stream_group.totalModelBatchSize(),
                                                                stream_group.maxSeqLen(),
                                                                int(stream_group.totalContextBatchSize() > 0));
-        profiler_            = std::make_shared<CudaProfiler>(profiler_prefix);
+        profiler_            = std::make_shared<CudaProfiler>(profiler_prefix,
+                                                   params_.profiling_debug_logging_config.torch_cuda_profiler_dir);
         profiler_->start();
     }
     int64_t      step_begin_time_us = autil::TimeUtility::currentTimeInMicroSeconds();

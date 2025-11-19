@@ -57,7 +57,6 @@ public:
     /// @brief Unmaps physical memory from the virtual address ranges owned by
     ///        this allocator, without releasing the virtual addresses.
     virtual void unmap() = 0;
-    
     /// @brief Allocates a block of actual physical memory that does not undergo virtual memory mapping.
     ///        The map and unmap methods will not be able to release memory allocated via mallocPhysical.
     virtual void* mallocPhysical(size_t size) = 0;

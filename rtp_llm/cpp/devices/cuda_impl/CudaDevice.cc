@@ -240,8 +240,9 @@ void CudaDevice::init() {
     DeviceBase::init();
 
     RTP_LLM_LOG_INFO("cuda device init max batch size: %d\n", init_params_.max_batch_size);
-    curandstate_buf_ = allocateBuffer({init_params_.max_batch_size * sizeof(curandState_t), 
-        AllocationType::DEVICE, false, VmemCtl::ForcePhysical}, {"curandstate"});
+    curandstate_buf_ = allocateBuffer(
+        {init_params_.max_batch_size * sizeof(curandState_t), AllocationType::DEVICE, false, VmemCtl::ForcePhysical},
+        {"curandstate"});
 }
 
 // pre-allocate buffer before buffer managaer

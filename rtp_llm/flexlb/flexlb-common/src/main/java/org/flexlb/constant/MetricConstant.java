@@ -23,9 +23,9 @@ public class MetricConstant {
     public static final String ENGINE_DECODE_WORKER_NUMBER = "app.engine.health.check.engine.decode.worker.number";
 
     /**
-     * VipServer Client 请求结果
+     * 服务发现 Client 请求结果
      */
-    public static final String ENGINE_NUMBER_VIP_RESULT = "app.engine.health.check.engine.worker.number.vipserver.result";
+    public static final String ENGINE_NUMBER_SERVICE_DISCOVERY_RESULT = "app.engine.health.check.engine.worker.number.service.discovery.result";
 
     /**
      * 引擎worker剩余可用并发数
@@ -47,6 +47,8 @@ public class MetricConstant {
     public static final String ENGINE_BALANCING_MASTER_ALL_QPS = "app.engine.balancing.master.all.qps";
 
     public static final String ENGINE_BALANCING_MASTER_SCHEDULE_RT = "app.engine.balancing.master.all.rt";
+
+    public static final String ENGINE_BALANCING_MASTER_SELECT_DETAIL = "app.engine.balancing.master.select.detail";
 
     /**
      * Master负载均衡服务的失败qps
@@ -72,6 +74,11 @@ public class MetricConstant {
      * 引擎队列等待时间
      */
     public static final String ENGINE_RUNNING_QUEUE_TIME = "app.engine.health.check.running.queue.time";
+
+    /**
+     * 引擎本地任务缓存大小
+     */
+    public static final String ENGINE_LOCAL_TASK_MAP_SIZE = "app.engine.health.check.local.task.map.size";
 
     /**
      * prefill master节点监控

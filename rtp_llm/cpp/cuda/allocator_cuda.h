@@ -61,8 +61,9 @@ private:
 };
 
 template<>
-class Allocator<AllocatorType::CUDA>: 
-    public PurePointerCudaAllocator, public IVirtualMemAllocator, 
+class Allocator<AllocatorType::CUDA>:
+    public PurePointerCudaAllocator,
+    public IVirtualMemAllocator,
     public TypedAllocator<AllocatorType::CUDA> {
 public:
     Allocator(int device_id);
@@ -113,7 +114,7 @@ public:
      *          non-pinned blocks results in undefined behavior until `map()`
      *          is invoked.
      */
-    void unmap() override;
+    void  unmap() override;
     void* mallocPhysical(size_t size) override;
 
 private:

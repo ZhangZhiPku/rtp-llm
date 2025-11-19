@@ -2,9 +2,9 @@ import asyncio
 import logging
 import socket
 import threading
+import traceback
 from typing import Any, Dict, List, Optional, Union
 
-import traceback
 import uvicorn
 from anyio import CapacityLimiter
 from anyio.lowlevel import RunVar

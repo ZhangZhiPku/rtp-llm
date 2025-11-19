@@ -21,6 +21,7 @@ from rtp_llm.config.py_config_modules import (
 from rtp_llm.config.quant_config import (
     Fp8BlockWiseQuantConfig,
     Fp8PerChannelCompressedQuantConfig,
+    Fp8PerChannelQuarkQuantConfig,
     Fp8PerTensorCompressedQuantConfig,
     QuantizationConfig,
     init_quant_config,
@@ -240,6 +241,7 @@ class GptInitModelParameters:
     decode_polling_kv_cache_step_ms: int
     decode_retry_timeout_ms: int
     decode_retry_times: int
+    decode_retry_interval: int
     deepseek_mscale_all_dim: float
     deepseek_rope_mscale: float
     dp_rank: int
@@ -652,9 +654,7 @@ class GptInitModelParameters:
             rocm_hipblaslt_config=get_env_str(
                 "ROCM_HIPBLASLT_CONFIG", "gemm_config.csv"
             ),
-            use_swizzleA = (
-                get_env_bool("USE_SWIZZLEA", False)
-            ),
+            use_swizzleA=(get_env_bool("USE_SWIZZLEA", False)),
             ft_disable_custom_ar=get_env_bool("FT_DISABLE_CUSTOM_AR", True),
             enable_cuda_graph=get_env_bool("ENABLE_CUDA_GRAPH", False),
             enable_cuda_graph_debug_mode=get_env_bool(
@@ -824,6 +824,8 @@ class GptInitModelParameters:
         else:
             align_size = tp_size * 64
             moe_align_size = 64
+            if self.quant_algo.isFp8PTPC():
+                moe_align_size = 128
         if self.layer_inter_size:
             layer_inter_padding_size = []
             for idx in range(len(self.layer_inter_size)):
@@ -832,14 +834,20 @@ class GptInitModelParameters:
                     inter_size
                     + (
                         get_pad_size(inter_size, align_size)
-                        if (self.quant_algo.isQuant() or self.gpt_init_params.hw_kernel_config.use_swizzleA)
+                        if (
+                            self.quant_algo.isQuant()
+                            or self.gpt_init_params.hw_kernel_config.use_swizzleA
+                        )
                         else 0
                     )
                 )
             self.layer_inter_padding_size = layer_inter_padding_size
         self.inter_padding_size = self.inter_size + (
             get_pad_size(self.inter_size, align_size)
-            if (self.quant_algo.isQuant() or self.gpt_init_params.hw_kernel_config.use_swizzleA)
+            if (
+                self.quant_algo.isQuant()
+                or self.gpt_init_params.hw_kernel_config.use_swizzleA
+            )
             else 0
         )
         if self.head_num_kv <= 0:
@@ -1100,6 +1108,10 @@ class GptInitModelParameters:
                 self.py_env_configs.pd_separation_config.decode_retry_timeout_ms
             )
             logging.info(f"decode_retry_timeout_ms: {self.decode_retry_timeout_ms}")
+            self.decode_retry_interval_ms = (
+                self.py_env_configs.pd_separation_config.decode_retry_interval_ms
+            )
+            logging.info(f"decode_retry_interval_ms: {self.decode_retry_interval_ms}")
 
             self.rdma_connect_retry_times = (
                 self.py_env_configs.pd_separation_config.rdma_connect_retry_times
@@ -1126,11 +1138,12 @@ class GptInitModelParameters:
             logging.info(f"decode_entrance: {self.decode_entrance}")
 
         self.scheduler_reserve_resource_ratio = int(
-            os.environ.get("SCHEDUlER_RESERVE_RESOURCE_RATIO", 5)
+            os.environ.get("SCHEDULER_RESERVE_RESOURCE_RATIO", 5)
         )
         logging.info(
             f"scheduler_reserve_resource_ratio: {self.scheduler_reserve_resource_ratio}"
         )
+
         self.reuse_cache = self.py_env_configs.py_kv_cache_config.reuse_cache
         logging.info(f"reuse_cache: {self.reuse_cache}")
         self.pre_allocate_op_mem = bool(int(os.environ.get("PRE_ALLOCATE_OP_MEM", 1)))
@@ -1331,7 +1344,15 @@ class GptInitModelParameters:
                         "weight_scale_suffix": ".weight_scale",
                     }
                 )
-
+        if quant_method == "quark":
+            quark_weights_config = quant_config["global_quant_config"]["weight"]
+            if quark_weights_config["dtype"] == "fp8_e4m3":
+                bits = 8
+            if (
+                quark_weights_config["dtype"] == "fp8_e4m3"
+                and quark_weights_config["qscheme"] == "per_channel"
+            ):
+                quant_method = Fp8PerChannelQuarkQuantConfig.get_method()
         return QuantizationConfig.from_config(
             {
                 "bits": bits,
@@ -1401,6 +1422,16 @@ class GptInitModelParameters:
         return res
 
     def eval_model_size(self):
+        model_size = self.eval_model_weight_size()
+        kv_cache_mem_size = self._eval_kv_cache_mem_size()
+        runtime_buffer = self._eval_runtime_buffer_mem_size()
+        total_size = model_size + kv_cache_mem_size + runtime_buffer
+        logging.info(
+            f"total_size(Bytes): {total_size}, model_size:{model_size}, kv_cache_mem_size:{kv_cache_mem_size}, runtime_buffer:{runtime_buffer}"
+        )
+        return total_size
+
+    def eval_model_weight_size(self):
         layer_param_bytes = 2
         if self.quant_algo.getWeightBits() == 8:
             layer_param_bytes = 1
@@ -1413,14 +1444,7 @@ class GptInitModelParameters:
             + self.gpt_init_params.hidden_size * layer_param_bytes
             + self.word_emb_param_count * 2
         )  # maybe some model donot have lm_head
-
-        kv_cache_mem_size = self._eval_kv_cache_mem_size()
-        runtime_buffer = self._eval_runtime_buffer_mem_size()
-        total_size = model_size + kv_cache_mem_size + runtime_buffer
-        logging.info(
-            f"total_size(Bytes): {total_size}, model_size:{model_size}, kv_cache_mem_size:{kv_cache_mem_size}, runtime_buffer:{runtime_buffer}"
-        )
-        return total_size
+        return model_size
 
     def _eval_kv_cache_mem_size(self):
         if self.task_type != TaskType.LANGUAGE_MODEL:
