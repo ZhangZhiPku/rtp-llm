@@ -7,25 +7,28 @@ from time import time
 from typing import Any, Dict
 
 import httpx
+import torch
 from safetensors.torch import load_file
-from tipc import CudaIpcHelper, SharedMemoryIPCHelper, TensorTransportClient
+from tipc import TensorTransportClient
 from tqdm import tqdm
 
-# PATH = "/root/hf/Qwen3-30B-A3B"
-PATH = "/root/hf/Qwen2-0.5B-Instruct"
+PATH = "/root/hf/Qwen3-30B-A3B"
+# PATH = "/root/hf/Qwen2-0.5B-Instruct"
 
 
 class RtpLLMHttpClient(TensorTransportClient):
     def __init__(self, address: str, frentend_port: int, backend_port: int):
-        super().__init__(url=f"http://{address}:{backend_port}/update_weight")
+        super().__init__(
+            device_id=0,
+            url=f"http://{address}:{backend_port}/update_weight",
+            method="cuipc",
+        )
         self.client1 = httpx.AsyncClient(
             base_url=f"http://{address}:{frentend_port}", timeout=30.0
         )
         self.client2 = httpx.AsyncClient(
             base_url=f"http://{address}:{backend_port}", timeout=30.0
         )
-        self.cuipc_helper = CudaIpcHelper()
-        self.shipc_helper = SharedMemoryIPCHelper()
         self.records: Dict[str, Any] = {}
 
     async def __aenter__(self):
@@ -42,6 +45,8 @@ class RtpLLMHttpClient(TensorTransportClient):
         if response is not None and "status" in response:
             if response["status"] == "error":
                 raise Exception(f"server internal error: {response}")
+            if "error" in response:
+                raise Exception(f"server request error: {response}")
         return response
 
     async def chat_completion(self, name: str, prompt: str) -> None:
@@ -73,8 +78,9 @@ class RtpLLMHttpClient(TensorTransportClient):
         # sort weight is necessary
         weights = [(name, tensor) for name, tensor in tqdm(weights.items())]
         for name, tensor in tqdm(sorted(weights), "updating weights"):
+            tensor = torch.empty_like(tensor, dtype=torch.half, device="cuda")
             self.write(name, tensor)
-        self.flush()
+        self.flush(named_tensors=None)
 
     async def pause(self) -> None:
         response = await self.client2.post("/pause")

@@ -5,8 +5,9 @@ py_library(
     data = [
         "csrc/common.h",
         "csrc/export.cc",
-        "csrc/ipc.cc",
         "csrc/ipc.h",
+        "csrc/shm.h",
+        "csrc/bufferIO.h",
         "build/readme.md"
     ],
     srcs = glob([

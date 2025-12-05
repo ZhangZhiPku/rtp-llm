@@ -1,104 +1,206 @@
-# test_server.py
+import logging
+from typing import List, Optional
 
-from flask import Flask, request, jsonify
 import torch
-from core import CudaIpcHelper, CuIpcTensorMeta
-from typing import Dict, List, Any
 
-# A simple Flask application to act as the IPC receiver server.
-app = Flask(__name__)
+from .core import MethodType, TensorIPCMeta
+from .ffi import NvIpcReader, NvShmReader, TipcLib
 
-def try_rebuild_root(meta: CuIpcTensorMeta) -> torch.Tensor:
-    helper: CudaIpcHelper = CudaIpcHelper()
-    return helper.build_from_meta(meta)
+logger = logging.getLogger(__name__)
 
-def try_rebuild_tensor(
-        root: torch.Tensor, shape: list, 
-        dtype: str, offset: int
-    ) -> torch.Tensor:
+
+class TensorTransportServer:
     """
-    Rebuilds a specific tensor from a root tensor (buffer) and its metadata.
+    Server-side helper to read tensors from shared memory or CUDA IPC.
 
-    Args:
-        root (torch.Tensor): The main buffer tensor containing the data.
-        shape (list): The shape of the original tensor.
-        dtype (str): The string representation of the original tensor's data type.
-        offset (int): The byte offset where the tensor's data begins in the root buffer.
+    It acts as a thin wrapper around `NvShmReader` / `NvIpcReader`, and
+    reconstructs tensors based on a list of `TensorIPCMeta` metadata entries.
 
-    Returns:
-        torch.Tensor: The rebuilt tensor.
+    Typical usage:
+        server = TensorTransportServer(method="shm", storage="/dev/shm/xxx", device_id=0)
+        metas = [...]  # list[TensorIPCMeta] previously sent from client
+        tensors = server.read(metas)
+        server.close()
     """
-    dtype_map = {
-        'float32': torch.float32,
-        'float64': torch.float64,
-        'int32': torch.int32,
-        'int64': torch.int64,
-        'uint8': torch.uint8,
-        'float16': torch.float16,
-        'bfloat16': torch.bfloat16,
-        'float8_e4m3fn': torch.float8_e4m3fn
-    }
-    if not dtype in dtype_map:
-        raise ValueError(f"Unsupported dtype: {dtype}")
-    _dtype = dtype_map[dtype]
 
-    # Calculate the size of the tensor in bytes.
-    element_size = torch.tensor([], dtype=_dtype).element_size()
-    size_in_elements = torch.prod(torch.tensor(shape)).item()
-    size_in_bytes = size_in_elements * element_size
+    def __init__(self, method: MethodType, storage: str):
+        """
+        Initialize a TensorTransportServer.
 
-    # Slice the buffer to get the specific tensor's data.
-    tensor_bytes = root.view(torch.uint8)[offset : offset + size_in_bytes]
+        Args:
+            method (MethodType):
+                Transport method:
+                  - "shm": use shared memory backend via NvShmReader
+                  - "cuipc": use CUDA IPC backend via NvIpcReader
+            storage (str):
+                For "shm": shared memory name or path, e.g. "/dev/shm/xxx".
+                For "cuipc": CUDA IPC handle identifier or equivalent.
 
-    # View the sliced byte tensor as the original tensor's shape and dtype.
-    return tensor_bytes.view(_dtype).view(shape)
+        Raises:
+            ValueError: If `method` is not one of {"shm", "cuipc"}.
+            RuntimeError: If reader creation fails.
+        """
+        if method not in {"shm", "cuipc"}:
+            raise ValueError(
+                f"Unsupported method '{method}', expected 'shm' or 'cuipc'."
+            )
 
-@app.route('/bucket_transport_tensors', methods=['POST'])
-def bucket_transport_tensors() -> tuple[dict, int]:
-    """
-    Handles incoming POST requests from the TransportBucket client.
+        self.storage: str = storage
+        self.method: MethodType = method
+        self.reader: Optional[NvIpcReader | NvShmReader] = None
 
-    This endpoint expects a JSON payload containing the metadata for the
-    batched tensors and the root tensor's IPC handle. It simulates the
-    reception and processing of this data.
-    """
-    
-    # 1. Get the JSON payload from the request.
-    payload: Dict[str, Any] = request.get_json()
-    if not payload:
-        return jsonify({'error': 'No JSON payload received'}), 400
+        logger.info(
+            "Initializing TensorTransportServer: method=%s, storage=%s", method, storage
+        )
 
-    root_meta_hex: str = payload.get('root')
+        try:
+            if method == "shm":
+                self.reader = TipcLib.NvShmReader(storage)
+                logger.debug("NvShmReader created with storage=%s", storage)
+            else:  # "cuipc"
+                self.reader = TipcLib.NvIpcReader(bytes.fromhex(storage))
+                logger.debug("NvIpcReader created with storage=%s", storage)
 
-    root: torch.Tensor = try_rebuild_root(bytes.fromhex(root_meta_hex))
-    tensors_meta: List[Dict[str, Any]] = payload.get('tensors')
+        except Exception as e:
+            logger.exception(
+                "Failed to create %s reader for storage=%s",
+                "NvShmReader" if method == "shm" else "NvIpcReader",
+                storage,
+            )
+            raise RuntimeError(
+                f"Failed to create reader for storage='{storage}' with method='{method}': {e}"
+            ) from e
 
-    # 2. Validate the payload structure.
-    if not all([root_meta_hex, isinstance(tensors_meta, list)]):
-        return jsonify({'error': 'Invalid payload format'}), 400
+    def read(self, metas: List[TensorIPCMeta], device_id: int) -> List[torch.Tensor]:
+        """
+        Read a list of tensors from the transport backend using tensor metadata.
 
-    if tensors_meta:
-        for meta in tensors_meta:
-            if 'name' not in meta:
-                return jsonify({'error': 'missing tensor name'}), 400
-            name = meta["name"]
+        The method:
+        - Computes the total number of bytes to read (sum of `meta.size`),
+        - Builds an offset array for the reader backend,
+        - Calls the underlying reader's `read` and returns the resulting tensors.
 
-            if 'shape' not in meta:
-                return jsonify({'error': 'missing tensor shape'}), 400
-            shape = meta["shape"]
+        Args:
+            metas (list[TensorIPCMeta]):
+                Metadata for each tensor to reconstruct. Each `TensorIPCMeta` is
+                expected to at least have a `size` attribute, representing the
+                number of bytes occupied by the corresponding tensor.
 
-            if 'dtype' not in meta:
-                return jsonify({'error': 'missing tensor dtype'}), 400
-            dtype = meta["dtype"]
+        Returns:
+            list[torch.Tensor]: The list of tensors reconstructed from the buffer.
 
-            if 'offset' not in meta:
-                return jsonify({'error': 'missing tensor offset'}), 400
-            offset = meta["offset"]
-            
-            tensor = try_rebuild_tensor(root, shape, dtype, offset)
+        Raises:
+            ValueError: If `metas` list is empty.
+            RuntimeError: If the reader has not been initialized or reading fails.
+        """
+        if not metas:
+            raise ValueError("Cannot read tensors: empty metadata list (metas).")
 
-    return jsonify({'message': 'Tensors received successfully'}), 200
+        if self.reader is None:
+            raise RuntimeError(
+                "Reader is not initialized. Did you encounter an error during construction?"
+            )
 
-if __name__ == '__main__':
-    print("Starting IPC Test Server...")
-    app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)
+        # Compute cumulative offsets and total size.
+        #
+        # Example:
+        #   sizes  = [10, 20, 30]
+        #   offsets = [0, 10, 30]
+        #   total_size = 10 + 20 + 30 = 60
+        #
+        # Offsets are computed for all tensors except the last, as the last one
+        # is implied by the total buffer size.
+        offsets: List[int] = [0]
+        total_size: int = 0
+
+        for meta in metas[:-1]:
+            if meta.size <= 0:
+                raise ValueError(f"Invalid tensor size in metadata: {meta.size}")
+            total_size += meta.size
+            offsets.append(total_size)
+
+        # Add the last tensor size to the total size.
+        last_meta = metas[-1]
+        if last_meta.size <= 0:
+            raise ValueError(f"Invalid tensor size in metadata: {last_meta.size}")
+        total_size += last_meta.size
+
+        try:
+            _tensors: List[torch.Tensor] = self.reader.read(
+                total_size,
+                offsets,
+                device_id=device_id,
+            )
+            if len(_tensors) != len(metas):
+                raise ValueError("num of tensor mismatchs the num of meta.")
+
+            tensors: List[torch.Tensor] = []
+            for meta, tensor in zip(metas, _tensors):
+                tensors.append(tensor.view(dtype=meta.dtype).view(size=meta.shape))
+
+        except Exception as e:
+            logger.exception(
+                "Failed to read tensors from backend (method=%s, storage=%s).",
+                self.method,
+                self.storage,
+            )
+            raise RuntimeError(
+                f"Failed to read tensors from storage='{self.storage}' "
+                f"with method='{self.method}': {e}"
+            ) from e
+
+        logger.info(
+            "Successfully read %d tensors from backend (method=%s, storage=%s).",
+            len(tensors),
+            self.method,
+            self.storage,
+        )
+
+        return tensors
+
+    def close(self) -> None:
+        """
+        Close the underlying reader and release associated resources.
+
+        This method is idempotent; calling it multiple times is safe.
+
+        Raises:
+            RuntimeError: If closing fails.
+        """
+        if self.reader is None:
+            logger.debug("close() called but reader is already None; nothing to do.")
+            return
+
+        logger.info(
+            "Closing TensorTransportServer reader (method=%s, storage=%s).",
+            self.method,
+            self.storage,
+        )
+
+        try:
+            self.reader.close()
+        except Exception as e:
+            logger.exception(
+                "Failed to close reader (method=%s, storage=%s).",
+                self.method,
+                self.storage,
+            )
+            raise RuntimeError(
+                f"Failed to close reader for storage='{self.storage}' "
+                f"with method='{self.method}': {e}"
+            ) from e
+        finally:
+            self.reader = None
+
+    def __del__(self):
+        """
+        Destructor: best-effort attempt to close the reader.
+
+        Exceptions are intentionally suppressed since raising exceptions from
+        `__del__` is discouraged and can cause issues during interpreter shutdown.
+        """
+        try:
+            self.close()
+        except Exception:
+            # Suppress all errors in destructor
+            pass

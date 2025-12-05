@@ -412,20 +412,18 @@ class BackendServer(object):
             raise Exception(
                 "This interface is not implemented for embedding models; it is only available for LLM models."
             )
-        if not isinstance(self.model, AsyncModel):
-            raise Exception(f"{type(self.model)} has not implemented this interface.")
         if g_parallel_info.is_master and g_parallel_info.world_size > 1:
             self._gang_server.request_workers(
                 req={}, uri="internal_detach_physical_memory", is_wait=True
             )
         try:
             torch.cuda.empty_cache()
-            self.model.decoder_engine_.detach_physical_memory()
+            self.engine.detach_physical_memory()
         except Exception as e:
             raise e
 
     def internal_detach_physical_memory(self):
-        self.model.decoder_engine_.detach_physical_memory()
+        self.engine.detach_physical_memory()
 
     def attach_physical_memory(self):
         """
@@ -445,7 +443,7 @@ class BackendServer(object):
             self._gang_server.request_workers(
                 req={}, uri="internal_attach_physical_memory", is_wait=True
             )
-        self.model.decoder_engine_.attach_physical_memory()
+        self.engine.attach_physical_memory()
 
     def internal_attach_physical_memory(self):
-        self.model.decoder_engine_.attach_physical_memory()
+        self.engine.attach_physical_memory()

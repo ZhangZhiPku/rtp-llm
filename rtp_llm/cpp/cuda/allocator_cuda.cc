@@ -181,7 +181,7 @@ void Allocator<AllocatorType::CUDA>::doFree(void* address) {
     }
 
     RTP_LLM_LOG_DEBUG("Vmem allocator free pointer %p\n", address);
-    check_cuda_value(cudaStreamSynchronize(stream_));
+    // check_cuda_value(cudaStreamSynchronize(stream_));
     // tmp sync to avoid memory free before kernel run. cudaFree will not perform any implicit synchronization when the
     // pointer was allocated with cudaMallocAsync or cudaMallocFromPoolAsync
     const auto& block = it->second;

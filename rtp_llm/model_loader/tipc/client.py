@@ -1,14 +1,16 @@
+import base64
 import logging
 import re
 import uuid
 from dataclasses import dataclass
 from multiprocessing import shared_memory
-from time import time
+from typing import Optional
 
 import requests  # Import the requests library for making HTTP requests
 import torch
 
-from .core import COMMON_PREFIX, SharedMemIpcMeta, SharedMemoryIPCHelper
+from .core import COMMON_PREFIX, MethodType, TensorIPCMeta
+from .ffi import NvIpcWriter, NvShmWriter, TipcLib
 
 
 @dataclass
@@ -281,7 +283,9 @@ class TensorBucketBuilder:
         self.bucket.clear()
         return ret
 
-    def combine(self, name: str, tensor: torch.Tensor) -> list[NamedTensor]:
+    def combine_layer_tensor(
+        self, name: str, tensor: torch.Tensor
+    ) -> list[NamedTensor]:
         """
         Receives a tensor and either adds it to a pending buffer for later combination,
         adds it to a bucket for immediate sending, or flushes the pending tensors
@@ -323,38 +327,167 @@ class TensorBucketBuilder:
 
 
 class TensorTransportClient:
+    """
+    Client for efficiently transporting tensor data to a remote server.
+
+    Features:
+    - Supports two transport methods: shared memory ("shm") and CUDA IPC ("cuipc")
+    - For "shm", creates a single large persistent shared memory buffer that can be reused
+    """
+
     def __init__(
         self,
-        url: str = "locahost:26006/update_weight",
-        shm_size: int = 8 * 1024 * 1024 * 1024,
+        device_id: int,
+        method: MethodType = "shm",
+        buffer_size: int = 4 * 1024 * 1024 * 1024,
+        url: str = "http://localhost:26006/update_weight",
     ):
         """
-        Initializes the TensorTransportClient, creating a single, large
-        shared memory block for efficient repeated transfers.
+        Initialize TensorTransportClient and create transport resources
+        according to the selected method.
 
         Args:
-            url (str): The target URL for the POST request to notify the server
-                       about the shared memory data. Defaults to "locahost:26006/update_weight".
-            shm_size (int): The maximum size (in bytes) of the shared memory
-                            block to pre-allocate. This should be large enough
-                            to accommodate the largest batch of combined tensors you plan to send.
-                            Defaults to 8GB.
-        """
-        self.tensor_bucket = TensorBucketBuilder()
-        self.cpu_ipc: SharedMemoryIPCHelper = SharedMemoryIPCHelper()
-        self.shm_size = shm_size
+            device_id (int):
+                Target GPU device ID when using CUDA IPC ("cuipc").
+                For "shm" mode this is not used but kept for a unified interface.
+            method (str, optional):
+                Transport method:
+                  - "shm": use system shared memory + NvShmWriter
+                  - "cuipc": use CUDA IPC + NvIpcWriter
+                Defaults to "shm".
+            buffer_size (int, optional):
+                Maximum buffer size in bytes to pre-allocate.
+                For "shm": size of the shared memory segment.
+                For "cuipc": internal buffer size of NvIpcWriter.
+                Default is 4GB.
+            url (str, optional):
+                HTTP endpoint used to notify the server about shared memory
+                or IPC handle information.
+                Default is "http://localhost:26006/update_weight".
 
-        self.shm_name = f"{COMMON_PREFIX}_persistent_{uuid.uuid4().__str__()}"
+        Raises:
+            ValueError: If method is invalid or buffer_size is non-positive.
+            RuntimeError: If creation of shared memory or IPC writer fails.
+        """
+
+        # Basic argument validation
+        if method not in ("shm", "cuipc"):
+            raise ValueError(
+                f"Unsupported method '{method}', expected 'shm' or 'cuipc'."
+            )
+
+        if buffer_size <= 0:
+            raise ValueError(f"buffer_size must be positive, got {buffer_size}.")
+
+        # Normalize URL: automatically add scheme if user passed "localhost:26006/..."
+        if not url.startswith("http://") and not url.startswith("https://"):
+            url = "http://" + url
+
+        self.device_id = device_id
+        self.method: MethodType = method
+        self.buffer_size = buffer_size
         self.url = url
+
+        # Container/builder for tensors to be transported
+        self.tensor_bucket = TensorBucketBuilder()
+
+        # Shared memory and writer objects; will be initialized depending on method
+        self.shm: Optional[shared_memory.SharedMemory] = None
+        self.storage: Optional[str] = None
+        self.writer: Optional[NvIpcWriter | NvShmWriter] = None
+
+        # Initialize underlying transport resource based on selected method
+        if method == "shm":
+            self._init_shared_memory_writer()
+        else:  # method == "cuipc"
+            self._init_ipc_writer()
+
+    def _init_shared_memory_writer(self) -> None:
+        """
+        Initialize a shared memory segment and its corresponding NvShmWriter.
+        """
+        # Generate a unique shared memory name to avoid collisions
+        raw_name = f"{COMMON_PREFIX}_persistent_{uuid.uuid4()}"
         try:
-            # Create a single, persistent shared memory block
-            self.shm = shared_memory.SharedMemory(
-                create=True, size=self.shm_size, name=self.shm_name
+            shm = shared_memory.SharedMemory(
+                create=True,
+                size=self.buffer_size,
+                name=raw_name,
             )
         except Exception as e:
-            raise RuntimeError(f"Failed to create persistent shared memory block: {e}")
+            raise RuntimeError(
+                f"Failed to create shared memory '{raw_name}': {e}"
+            ) from e
 
-    def _send(self, encoded_metas: list[SharedMemIpcMeta]) -> None:
+        self.shm = shm
+        self.storage = f"/dev/shm/{raw_name}"
+
+        try:
+            self.writer = TipcLib.NvShmWriter(self.storage)
+        except Exception as e:
+            # If writer creation fails, clean up the shared memory segment
+            try:
+                self.shm.close()
+                self.shm.unlink()
+            finally:
+                self.shm = None
+                self.shm_name = None
+            raise RuntimeError(
+                f"Failed to create NvShmWriter for '{self.shm_name}': {e}"
+            ) from e
+
+    def _init_ipc_writer(self) -> None:
+        """
+        Initialize a CUDA IPC writer (NvIpcWriter).
+        """
+        try:
+            self.writer = TipcLib.NvIpcWriter(
+                device=self.device_id,
+                buffer_size=self.buffer_size,
+            )
+            self.storage = self.writer.build().hex()
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to create NvIpcWriter on device {self.device_id}: {e}"
+            ) from e
+
+    def close(self) -> None:
+        """Explicitly release underlying resources (writer and shared memory)."""
+        if self.writer is not None:
+            try:
+                self.writer.close()
+            finally:
+                self.writer = None
+
+        # Close and unlink shared memory if it was created
+        if self.shm is not None:
+            try:
+                self.shm.close()
+                self.shm.unlink()
+            finally:
+                self.shm = None
+                self.shm_name = None
+
+    def __del__(self):
+        """
+        Destructor: attempt to free resources when the object is garbage-collected.
+        Exceptions are suppressed to avoid errors during interpreter shutdown.
+        """
+        try:
+            self.close()
+        except Exception:
+            pass
+
+    def build_tensor_meta(self, name: str, tensor: torch.Tensor) -> TensorIPCMeta:
+        m: TensorIPCMeta = TensorIPCMeta(
+            name=name,
+            shape=tensor.shape,
+            dtype=tensor.dtype,
+            size=tensor.element_size() * tensor.numel(),
+        )
+        return m
+
+    def _send(self, encoded_metas: list[TensorIPCMeta]) -> None:
         """
         Internal method to send the IPC metadata to the server via an HTTP POST request.
 
@@ -367,6 +500,9 @@ class TensorTransportClient:
             IOError: If the server returns a non-200 status code.
             Exception: If the server returns a 'status': 'error' in its JSON response.
         """
+
+        from time import time
+
         if not encoded_metas:
             return
 
@@ -376,7 +512,9 @@ class TensorTransportClient:
                 json={
                     "time": time(),
                     "desc": [m.encode() for m in encoded_metas],
-                    "method": "shm",
+                    "method": self.method,
+                    "storage": self.storage,
+                    "device": self.device_id,
                 },
             )
 
@@ -417,66 +555,39 @@ class TensorTransportClient:
             requests.exceptions.RequestException: If there's an error during the HTTP request.
             ValueError: If an unsupported IPC method is chosen or if the tensor is too large for SHM.
         """
-        t = t.cpu()
 
         logging.info(
             f"tipc transporting tensor, name={name}, dtype={t.dtype}, shape={t.shape}, device={t.device}"
         )
         # Combine the current tensor with any pending tensors from the same layer
-        named_tensors = self.tensor_bucket.combine(name, t)
+        named_tensors = self.tensor_bucket.combine_layer_tensor(name, t)
 
         if len(named_tensors) > 0:
-            encoded_bytes: int = 0
-            encoded_metas: list[SharedMemIpcMeta] = []
+            self.flush(named_tensors)
 
-            # Write the tensors to the shared memory block
-            for nt in named_tensors:
-                nt = preprocess(nt)
-                m: SharedMemIpcMeta = self.cpu_ipc.build_tensor_meta(
-                    name=nt.name, t=nt.tensor, offset=encoded_bytes, shm=self.shm
-                )
-                encoded_bytes += m.size_bytes
-                encoded_metas.append(m)
-            # Send the metadata to the server
-            self._send(encoded_metas=encoded_metas)
-
-    def flush(self):
+    def flush(self, named_tensors: list[NamedTensor] | None = None):
         """
         Forces the TensorBucketBuilder to process and send any remaining
         tensors in its buffers, regardless of layer ID changes.
         """
-        named_tensors = self.tensor_bucket.flush()
+        if named_tensors is None:
+            named_tensors = self.tensor_bucket.flush()
+
+        if self.writer is None:
+            raise RuntimeError("Internal Error.")
 
         if len(named_tensors) > 0:
-            encoded_bytes: int = 0
-            encoded_metas: list[SharedMemIpcMeta] = []
+            encoded_metas: list[TensorIPCMeta] = []
 
             for nt in named_tensors:
                 nt = preprocess(nt)
-                m: SharedMemIpcMeta = self.cpu_ipc.build_tensor_meta(
-                    name=nt.name, t=nt.tensor, offset=encoded_bytes, shm=self.shm
-                )
-                encoded_bytes += m.size_bytes
-                encoded_metas.append(m)
-            self._send(encoded_metas=encoded_metas)
 
-    def __del__(self):
-        """
-        Ensures the persistent shared memory block is closed and unlinked
-        when the TensorTransportClient object is garbage collected.
-        """
-        if hasattr(self, "shm") and self.shm:
-            try:
-                self.shm.close()
-                self.shm.unlink()  # Unlink the shared memory block from the system
-                logging.info(
-                    f"Persistent shared memory block '{self.shm_name}' closed and unlinked."
+                nt.tensor = nt.tensor.contiguous()
+                m: TensorIPCMeta = self.build_tensor_meta(
+                    name=nt.name, tensor=nt.tensor
                 )
-            except FileNotFoundError:
-                logging.info(
-                    f"Warning: Persistent shared memory block '{self.shm_name}' already unlinked."
-                )
-            except Exception as e:
-                logging.info(
-                    f"Error during __del__ of shared memory block '{self.shm_name}': {e}"
-                )
+                self.writer.write(nt.tensor)
+                encoded_metas.append(m)
+
+            self._send(encoded_metas=encoded_metas)
+            self.writer.reset()

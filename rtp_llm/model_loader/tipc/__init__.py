@@ -1,11 +1,11 @@
 from .client import TensorTransportClient
-from .core import CudaIpcHelper, SharedMemIpcMeta, SharedMemoryIPCHelper
-from .ffi import CUDA
+from .core import TensorIPCMeta
+from .ffi import TipcLib
+from .server import TensorTransportServer
 
 __all__ = [
-    "SharedMemIpcMeta",
-    "CudaIpcHelper",
+    "TensorIPCMeta",
     "TensorTransportClient",
-    "SharedMemoryIPCHelper",
-    "CUDA",
+    "TensorTransportServer",
+    "TipcLib",
 ]
