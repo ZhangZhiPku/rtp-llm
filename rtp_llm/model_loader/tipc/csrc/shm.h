@@ -78,7 +78,7 @@ public:
      * @param offsets     Starting offsets (in bytes) of each slice. Each slice i
      *                    is [offsets[i], offsets[i+1]) except the last slice,
      *                    which is [offsets.back(), total_bytes).
-     * @param device_id   CUDA device on which the returned tensors should reside.
+     * @param deivce_pcie_str CUDA device pcie address.
      *
      * @return std::vector<torch::Tensor>
      *         A list of 1D tensors of dtype torch::kUInt8, each tensor storing
@@ -89,7 +89,7 @@ public:
      *    returns owning tensors (no view).
      */
     std::vector<torch::Tensor>
-    read(std::size_t total_bytes, const std::vector<std::int64_t>& offsets, std::int32_t device_id) override {
+    read(std::size_t total_bytes, const std::vector<std::int64_t>& offsets, std::string device_pcie_str) override {
         TORCH_CHECK(total_bytes > 0, "NvShmReader::read: total_bytes must be positive");
         TORCH_CHECK(total_bytes <= size_,
                     "NvShmReader::read: total_bytes exceeds shm region size (",
@@ -102,7 +102,14 @@ public:
             return {};
         }
 
-        cudaError_t st = cudaSetDevice(device_id);
+        int         device_id = -1;
+        cudaError_t st        = cudaDeviceGetByPCIBusId(&device_id, device_pcie_str.c_str());
+        if (st != cudaSuccess) {
+            throw std::runtime_error(std::string("NvIpcReader::read: cudaDeviceGetByPCIBusId failed for '")
+                                     + device_pcie_str + "': " + cudaGetErrorString(st));
+        }
+
+        st = cudaSetDevice(device_id);
         if (st != cudaSuccess) {
             throw std::runtime_error(std::string("NvShmReader::read: cudaSetDevice failed: ") + cudaGetErrorString(st));
         }

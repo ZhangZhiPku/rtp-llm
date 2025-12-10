@@ -1,4 +1,3 @@
-import base64
 import logging
 import re
 import uuid
@@ -384,6 +383,7 @@ class TensorTransportClient:
             url = "http://" + url
 
         self.device_id = device_id
+        self.cuda_device_pcie: str | None = None
         self.method: MethodType = method
         self.buffer_size = buffer_size
         self.url = url
@@ -399,6 +399,7 @@ class TensorTransportClient:
         # Initialize underlying transport resource based on selected method
         if method == "shm":
             self._init_shared_memory_writer()
+            self.cuda_device_pcie = "cpu"
         else:  # method == "cuipc"
             self._init_ipc_writer()
 
@@ -446,6 +447,7 @@ class TensorTransportClient:
                 buffer_size=self.buffer_size,
             )
             self.storage = self.writer.build().hex()
+
         except Exception as e:
             raise RuntimeError(
                 f"Failed to create NvIpcWriter on device {self.device_id}: {e}"
@@ -514,7 +516,7 @@ class TensorTransportClient:
                     "desc": [m.encode() for m in encoded_metas],
                     "method": self.method,
                     "storage": self.storage,
-                    "device": self.device_id,
+                    "device": self.cuda_device_pcie,
                 },
             )
 
@@ -559,6 +561,12 @@ class TensorTransportClient:
         logging.info(
             f"tipc transporting tensor, name={name}, dtype={t.dtype}, shape={t.shape}, device={t.device}"
         )
+
+        if self.cuda_device_pcie is None:
+            self.cuda_device_pcie = TipcLib.get_tensor_device_pcie_str(t)
+        if t.is_cuda and self.cuda_device_pcie != TipcLib.get_tensor_device_pcie_str(t):
+            raise RuntimeError("Tensor has different cuda device.")
+
         # Combine the current tensor with any pending tensors from the same layer
         named_tensors = self.tensor_bucket.combine_layer_tensor(name, t)
 

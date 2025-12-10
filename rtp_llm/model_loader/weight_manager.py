@@ -202,7 +202,7 @@ class WeightManager:
         method: str = str(req["method"])
         storage: str = str(req["storage"])
         desc: list[str] = req["desc"]
-        device: int = int(req["device"])
+        device: str = req["device"]
 
         reader = TensorTransportServer(method=method, storage=storage)
         metas = [TensorIPCMeta.decode(content) for content in desc]

@@ -111,7 +111,7 @@ class NvIpcReader:
         self,
         total_bytes: int,
         offsets: List[int],
-        device_id: int,
+        device_pcie_str: str,
     ) -> List[torch.Tensor]:
         """
         Read slices from the IPC buffer as 1D uint8 CUDA tensors.
@@ -121,7 +121,7 @@ class NvIpcReader:
             offsets (List[int]): Starting offsets (in bytes) of each slice.
                 Slice i is [offsets[i], offsets[i+1]) for i < len(offsets) - 1,
                 and [offsets[-1], total_bytes) for the last slice.
-            device_id (int): CUDA device on which to open and use the IPC buffer.
+            device_pcie_str (str): CUDA device address.
 
         Returns:
             List[torch.Tensor]: A list of 1D tensors of dtype torch.uint8, each
@@ -172,7 +172,7 @@ class NvShmReader:
         self,
         total_bytes: int,
         offsets: List[int],
-        device_id: int,
+        device_pcie_str: str,
     ) -> List[torch.Tensor]:
         """
         Read slices from the shm buffer into 1D uint8 CUDA tensors.
@@ -183,7 +183,7 @@ class NvShmReader:
             offsets (List[int]): Starting offsets (in bytes) of each slice. Slice i is
                 [offsets[i], offsets[i+1]) for i < len(offsets)-1, and
                 [offsets[-1], total_bytes) for the last slice.
-            device_id (int): CUDA device on which the returned tensors should reside.
+            device_pcie_str (str): CUDA device addresss.
 
         Returns:
             List[torch.Tensor]: A list of 1D tensors of dtype torch.uint8, each
@@ -262,3 +262,8 @@ class NvShmWriter:
         After close(), further write() calls are invalid.
         """
         ...
+
+
+def get_tensor_device_pcie_str(t: torch.Tensor) -> str:
+    "Get tensor device pcie address."
+    ...

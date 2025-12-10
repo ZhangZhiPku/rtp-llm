@@ -80,12 +80,14 @@ public:
     /**
      * @brief Implementation of BufferedTensorReader::read().
      *
-     * Read slices from the IPC buffer as 1D uint8 CUDA tensors.
+     * Read slices from the IPC buffer as 1D uint8 CUDA tensors, selecting the
+     * CUDA device by its PCIe bus ID string rather than a logical device ID.
      *
-     * @param total_bytes  Total valid bytes in the shared buffer region.
-     *                     Must be >= offsets.back() and > 0.
-     * @param offsets      Starting offsets (in bytes) of each slice.
-     * @param device_id    CUDA device on which to open and use the IPC buffer.
+     * @param total_bytes     Total valid bytes in the shared buffer region.
+     *                        Must be >= offsets.back() and > 0.
+     * @param offsets         Starting offsets (in bytes) of each slice.
+     * @param device_pcie_str PCIe bus ID string of the GPU on which the IPC
+     *                        buffer resides (e.g. "0000:81:00.0").
      *
      * @return std::vector<torch::Tensor>
      *         A list of 1D tensors of dtype torch::kUInt8, each tensor
@@ -97,9 +99,18 @@ public:
      *    buffer; their deleter does not free or close the IPC handle.
      *  - The caller must ensure that NvIpcReader::close() is called only
      *    after all returned tensors are no longer needed.
+     *  - Using a PCIe bus ID string instead of a logical device index avoids
+     *    ambiguity when different processes use different CUDA_VISIBLE_DEVICES
+     *    mappings. The reader will:
+     *        1) Resolve @p device_pcie_str to a local CUDA device index via
+     *           cudaDeviceGetByPCIBusId.
+     *        2) Set that device as current via cudaSetDevice.
+     *        3) Open and use the CUDA IPC memory handle on the correct
+     *           physical GPU.
      */
-    std::vector<torch::Tensor>
-    read(std::size_t total_bytes, const std::vector<std::int64_t>& offsets, std::int32_t device_id) override {
+    std::vector<torch::Tensor> read(std::size_t                      total_bytes,
+                                    const std::vector<std::int64_t>& offsets,
+                                    const std::string                device_pcie_str) override {
         const int64_t occupied_bytes = static_cast<int64_t>(total_bytes);
 
         if (occupied_bytes <= 0) {
@@ -110,7 +121,16 @@ public:
             return {};
         }
 
-        cudaError_t st = cudaSetDevice(device_id);
+        // Resolve PCIe bus ID to a local CUDA device index.
+        int         device_id = -1;
+        cudaError_t st        = cudaDeviceGetByPCIBusId(&device_id, device_pcie_str.c_str());
+
+        if (st != cudaSuccess) {
+            throw std::runtime_error(std::string("NvIpcReader::read: cudaDeviceGetByPCIBusId failed for '")
+                                     + device_pcie_str + "': " + cudaGetErrorString(st));
+        }
+
+        st = cudaSetDevice(device_id);
         if (st != cudaSuccess) {
             throw std::runtime_error(std::string("NvIpcReader::read: cudaSetDevice failed: ") + cudaGetErrorString(st));
         }

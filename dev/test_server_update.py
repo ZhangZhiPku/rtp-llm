@@ -7,19 +7,20 @@ from time import time
 from typing import Any, Dict
 
 import httpx
-import torch
 from safetensors.torch import load_file
-from tipc import TensorTransportClient
 from tqdm import tqdm
 
-PATH = "/root/hf/Qwen3-30B-A3B"
-# PATH = "/root/hf/Qwen2-0.5B-Instruct"
+from tipc import TensorTransportClient
+
+# PATH = "/root/hf/Qwen3-30B-A3B"
+PATH = "/root/hf/Qwen2505"
+Device: int = 2
 
 
 class RtpLLMHttpClient(TensorTransportClient):
     def __init__(self, address: str, frentend_port: int, backend_port: int):
         super().__init__(
-            device_id=0,
+            device_id=Device,
             url=f"http://{address}:{backend_port}/update_weight",
             method="cuipc",
         )
@@ -78,8 +79,7 @@ class RtpLLMHttpClient(TensorTransportClient):
         # sort weight is necessary
         weights = [(name, tensor) for name, tensor in tqdm(weights.items())]
         for name, tensor in tqdm(sorted(weights), "updating weights"):
-            tensor = torch.empty_like(tensor, dtype=torch.half, device="cuda")
-            self.write(name, tensor)
+            self.write(name, tensor.to(f"cuda:{Device}"))
         self.flush(named_tensors=None)
 
     async def pause(self) -> None:

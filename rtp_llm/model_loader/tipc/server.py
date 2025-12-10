@@ -71,7 +71,7 @@ class TensorTransportServer:
                 f"Failed to create reader for storage='{storage}' with method='{method}': {e}"
             ) from e
 
-    def read(self, metas: List[TensorIPCMeta], device_id: int) -> List[torch.Tensor]:
+    def read(self, metas: List[TensorIPCMeta], device: str) -> List[torch.Tensor]:
         """
         Read a list of tensors from the transport backend using tensor metadata.
 
@@ -85,6 +85,8 @@ class TensorTransportServer:
                 Metadata for each tensor to reconstruct. Each `TensorIPCMeta` is
                 expected to at least have a `size` attribute, representing the
                 number of bytes occupied by the corresponding tensor.
+            device: str
+                cuda device pcie address.
 
         Returns:
             list[torch.Tensor]: The list of tensors reconstructed from the buffer.
@@ -129,7 +131,7 @@ class TensorTransportServer:
             _tensors: List[torch.Tensor] = self.reader.read(
                 total_size,
                 offsets,
-                device_id=device_id,
+                device_pcie_str=device,
             )
             if len(_tensors) != len(metas):
                 raise ValueError("num of tensor mismatchs the num of meta.")

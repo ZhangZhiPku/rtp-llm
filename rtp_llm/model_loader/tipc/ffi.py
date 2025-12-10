@@ -13,7 +13,10 @@ PROGRAM_NAME = "tipc"
 
 class __CompileHelper__:
     def __init__(self) -> None:
-        self.BUILD_DIR = EXTENSION_BUILD_DIR
+        self._pid: str = str(os.getpid())
+        self.BUILD_DIR = f"{os.getcwd()}/tipc/build_{self._pid}"
+
+        os.makedirs(name=self.BUILD_DIR, exist_ok=True)
         self.__CUDA_EXTENTION__ = None
 
         if torch.__version__ < "1.6.0":
@@ -31,11 +34,6 @@ class __CompileHelper__:
 
         Requires CUDA and C++17 for compilation.
         """
-        print(
-            f"{PROGRAM_NAME} is currently compiling the code, which may take some time. "
-            f"If any errors occur, please check your compilation environment: {PROGRAM_NAME} "
-            "requires C++17 and CUDA."
-        )
 
         # delete lock file.
         lock_file = os.path.join(
@@ -123,6 +121,10 @@ class TipcLib:
             raise ValueError(
                 f"NvShmReader error, 不能打开给定的文件，因为 shm_file_path: {shm_file_path} 似乎不是一个可以被打开的 shared memory 文件"
             )
+
+    @staticmethod
+    def get_tensor_device_pcie_str(t: torch.Tensor) -> str:
+        return CompileHelper.CUDA_EXTENSION.get_tensor_device_pcie_str(t)
 
 
 __all__ = ["TipcLib", "NvShmReader", "NvShmWriter", "NvIpcWriter", "NvIpcReader"]

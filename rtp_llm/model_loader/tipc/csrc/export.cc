@@ -57,21 +57,19 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
              "Construct a NvIpcReader from an IPC handle string.\n\n"
              "Args:\n"
              "    handle (bytes): A binary blob produced by NvIpcWriter.build() in the\n"
-             "        writer process, containing a serialized cudaIpcMemHandle_t.\n\n"
-             "The actual opening of the IPC handle (cudaIpcOpenMemHandle) is deferred\n"
-             "to read(), because the target device_id is specified there.")
+             "        writer process, containing a serialized cudaIpcMemHandle_t.\n\n.")
         .def("read",
              &NvIpcReader::read,
              py::arg("total_bytes"),
              py::arg("offsets"),
-             py::arg("device_id"),
+             py::arg("device_pcie_str"),
              "Read slices from the IPC buffer as 1D uint8 CUDA tensors.\n\n"
              "Args:\n"
              "    total_bytes (int): Total valid bytes in the shared buffer region.\n"
              "    offsets (List[int]): Starting offsets (in bytes) of each slice.\n"
              "        Slice i is [offsets[i], offsets[i+1]) for i < len(offsets) - 1,\n"
              "        and [offsets[-1], total_bytes) for the last slice.\n"
-             "    device_id (int): CUDA device on which to open and use the IPC buffer.\n\n"
+             "    device_pcie_str (str): CUDA device pcie address.\n\n"
              "Returns:\n"
              "    List[torch.Tensor]: A list of 1D tensors of dtype torch.uint8, each\n"
              "    tensor representing a slice of the shared buffer.\n\n"
@@ -101,7 +99,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
              &NvShmReader::read,
              py::arg("total_bytes"),
              py::arg("offsets"),
-             py::arg("device_id"),
+             py::arg("device_pcie_str"),
              "Read slices from the shm buffer into 1D uint8 CUDA tensors.\n\n"
              "Args:\n"
              "    total_bytes (int): Total valid bytes in the shm region. Must be > 0 and\n"
@@ -109,7 +107,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
              "    offsets (List[int]): Starting offsets (in bytes) of each slice. Slice i is\n"
              "        [offsets[i], offsets[i+1]) for i < len(offsets)-1, and\n"
              "        [offsets[-1], total_bytes) for the last slice.\n"
-             "    device_id (int): CUDA device on which the returned tensors should reside.\n\n"
+             "    device_pcie_str (int): CUDA device pcie address.\n\n"
              "Returns:\n"
              "    List[torch.Tensor]: A list of 1D tensors of dtype torch.uint8, each\n"
              "    storing a copy of the corresponding slice from shm on the given device.\n\n"
@@ -153,4 +151,9 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
              &NvShmWriter::close,
              "Close the shm mapping and file descriptor.\n\n"
              "After close(), further write() calls are invalid.");
+
+    m.def("get_tensor_device_pcie_str",
+          &tipc::get_tensor_device_pcie_str,
+          py::arg("tensor"),
+          "Get the PCIe bus ID string of the CUDA device on which the given tensor resides.");
 }
