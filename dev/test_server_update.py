@@ -14,7 +14,9 @@ from tipc import TensorTransportClient
 
 # PATH = "/root/hf/Qwen3-30B-A3B"
 PATH = "/root/hf/Qwen2505"
-Device: int = 2
+# PATH = "/mnt/nas1/hf/Qwen3-8B"
+Device: int = 5
+METHOD = "cuipc"
 
 
 class RtpLLMHttpClient(TensorTransportClient):
@@ -22,7 +24,7 @@ class RtpLLMHttpClient(TensorTransportClient):
         super().__init__(
             device_id=Device,
             url=f"http://{address}:{backend_port}/update_weight",
-            method="cuipc",
+            method=METHOD,
         )
         self.client1 = httpx.AsyncClient(
             base_url=f"http://{address}:{frentend_port}", timeout=30.0
@@ -66,6 +68,16 @@ class RtpLLMHttpClient(TensorTransportClient):
             "end_time": time(),
         }
 
+    async def detach(self) -> None:
+        response = await self.client2.post("/detach_physical_memory")
+        self._handle_response(response)
+        print(f"detach server memory: {response}")
+
+    async def attach(self) -> None:
+        response = await self.client2.post("/attach_physical_memory")
+        self._handle_response(response)
+        print(f"attach server memory: {response}")
+
     async def update_model_weight(self, path: str, method: str = "shm"):
         files = sorted(glob.glob(os.path.join(path, "model*.safetensors")))
         if not files:
@@ -94,6 +106,7 @@ class RtpLLMHttpClient(TensorTransportClient):
 class TestRtpClient(unittest.IsolatedAsyncioTestCase):
     async def test_full_flow(self):
         async with RtpLLMHttpClient("localhost", 26000, 26006) as client:
+            await client.attach()
             await client.restart()
             await client.chat_completion("chat_1", "hello qwen.")
             await client.pause()
@@ -113,6 +126,8 @@ class TestRtpClient(unittest.IsolatedAsyncioTestCase):
             )
 
             await client.pause()
+            await client.detach()
+            await client.attach()
             await client.update_model_weight(path=PATH, method="shm")
             await client.restart()
 

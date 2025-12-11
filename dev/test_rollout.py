@@ -1,9 +1,9 @@
 from time import sleep
 
-from async_grpc.client import AsyncGrpcClient, LLMRequest, RequestLog
+from async_grpc.async_grpc_client import AsyncGrpcClient, LLMRequest, RequestLog
 from transformers import AutoTokenizer
 
-TOKENIZER_PATH = "你的本地模型路径或HF模型名"
+TOKENIZER_PATH = "/mnt/nas1/hf/Qwen3-8B"
 
 prompts: list[list[int]] = []
 with open("dev/data/prompt.txt", mode="r", encoding="utf-8") as file:
@@ -15,12 +15,14 @@ with open("dev/data/prompt.txt", mode="r", encoding="utf-8") as file:
             print(f"unacceptable data format from text file. {prompt}")
         else:
             prompts.append(prompt)
+            if len(prompts) > 0:
+                break
 
 print(f"{len(prompts)} prompts was collected.")
 
 tokenizer = AutoTokenizer.from_pretrained(TOKENIZER_PATH)
 
-client: AsyncGrpcClient = AsyncGrpcClient(target_url="http://localhost:26001/")
+client: AsyncGrpcClient = AsyncGrpcClient(target_url="localhost:26001")
 
 for idx, prompt in enumerate(prompts):
     client.enqueue(
@@ -33,8 +35,9 @@ for idx, prompt in enumerate(prompts):
             temperature=0.99,
             top_k=100,
             top_p=0.90,
-            max_new_tokens=4096,
-            n=8,
+            max_new_tokens=256,
+            n=2,
+            num_beams=8,
         )
     )
 

@@ -399,7 +399,6 @@ class TensorTransportClient:
         # Initialize underlying transport resource based on selected method
         if method == "shm":
             self._init_shared_memory_writer()
-            self.cuda_device_pcie = "cpu"
         else:  # method == "cuipc"
             self._init_ipc_writer()
 
@@ -565,6 +564,7 @@ class TensorTransportClient:
         if self.cuda_device_pcie is None:
             self.cuda_device_pcie = TipcLib.get_tensor_device_pcie_str(t)
         if t.is_cuda and self.cuda_device_pcie != TipcLib.get_tensor_device_pcie_str(t):
+            print(self.cuda_device_pcie, TipcLib.get_tensor_device_pcie_str(t))
             raise RuntimeError("Tensor has different cuda device.")
 
         # Combine the current tensor with any pending tensors from the same layer

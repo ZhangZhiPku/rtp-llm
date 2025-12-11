@@ -160,6 +160,7 @@ class WeightManager:
                     f"{name} not found. wanted name list is {[f'model.{w.name}' for w in self._weight_module.weights]}"
                 )
 
+        torch.cuda.synchronize()
         logging.info(f"RtpLLM Finish Weights Update: {name}.")
 
     def update(self, req: Mapping[str, Any]) -> None:

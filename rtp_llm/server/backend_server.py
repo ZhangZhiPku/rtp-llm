@@ -437,8 +437,6 @@ class BackendServer(object):
             raise Exception(
                 "This interface is not implemented for embedding models; it is only available for LLM models."
             )
-        if not isinstance(self.model, AsyncModel):
-            raise Exception(f"{type(self.model)} has not implemented this interface.")
         if g_parallel_info.is_master and g_parallel_info.world_size > 1:
             self._gang_server.request_workers(
                 req={}, uri="internal_attach_physical_memory", is_wait=True

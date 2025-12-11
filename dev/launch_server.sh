@@ -1,11 +1,11 @@
 bazelisk build //rtp_llm:rtp_llm --config=cuda12_6
 
 export PYTHONPATH=~/work/RTP-LLM/bazel-out/k8-opt/bin/:$PYTHONPATH
-export CUDA_VISIBLE_DEVICES="2, 3"
-export TP_SIZE=2
+export CUDA_VISIBLE_DEVICES="5"
+export TP_SIZE=1
 export DP_SIZE=1
-export WORLD_SIZE=2
-export EP_SIZE=2
+export WORLD_SIZE=1
+export EP_SIZE=1
 export START_PORT=26000
 # export MODEL_TYPE=qwen_3_moe # 根据需要设置
 export MODEL_TYPE=qwen_2 # 根据需要设置
@@ -15,6 +15,8 @@ export ENABLE_FMHA=on
 export WARM_UP=0
 export CHECKPOINT_PATH=~/hf/Qwen2505/
 export TOKENIZER_PATH=~/hf/Qwen2505/
+# export CHECKPOINT_PATH=/mnt/nas1/hf/Qwen3-8B
+# export TOKENIZER_PATH=/mnt/nas1/hf/Qwen3-8B
 export LOG_LEVEL=INFO # 这里我喜欢打开TRACE，你随意
 export NCCL_DISABLE_ABORT=1
 export FT_DISABLE_CUSTOM_AR=1
