@@ -597,5 +597,7 @@ class TensorTransportClient:
                 self.writer.write(nt.tensor)
                 encoded_metas.append(m)
 
+            # necessary synchronize here.
+            torch.cuda.synchronize()
             self._send(encoded_metas=encoded_metas)
             self.writer.reset()

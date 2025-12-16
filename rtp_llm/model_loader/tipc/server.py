@@ -158,6 +158,7 @@ class TensorTransportServer:
             self.storage,
         )
 
+        torch.cuda.synchronize()
         return tensors
 
     def close(self) -> None:
