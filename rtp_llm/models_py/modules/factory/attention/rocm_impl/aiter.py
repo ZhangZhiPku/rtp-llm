@@ -335,7 +335,7 @@ class AiterDecodeAttnOpNonAsm(AiterDecodeAttnOpBase):
         num_kv_heads = self.head_num_kv
         num_seqs, num_heads, head_size = query.shape
         block_size = value_cache.shape[2]
-        _PARTITION_SIZE_ROCM = 256
+        _PARTITION_SIZE_ROCM = max(256, block_size)
 
         # init output
         output = torch.empty_like(query)
