@@ -339,6 +339,20 @@ GptModelOutputs PyWrappedModel::forward(const GptModelInputs& inputs) {
     DevicePerfWrapper wrapper(device_, "py model forward");
     holdInputsHostBuffers(inputs);
     py::gil_scoped_acquire gil;
+    
+    size_t batch = inputs.input_lengths->shape()[0];
+    // 每隔1秒，打印当前的 batch size 与 decoding tokens 总数，用于监控推理过程中的输入输出情况
+    static std::chrono::steady_clock::time_point last_log_time = std::chrono::steady_clock::now();
+    static size_t decoding_tokens_total = 0;
+
+    decoding_tokens_total += batch;
+    auto current_time = std::chrono::steady_clock::now();
+    if (std::chrono::duration_cast<std::chrono::seconds>(current_time - last_log_time).count() >= 1) {
+        printf("Current batch size: %zu, Total decoding tokens: %zu\n", batch, decoding_tokens_total);
+        last_log_time = current_time;
+        decoding_tokens_total = 0; // 重置计数器
+    }
+
     try {
         RTP_LLM_LOG_DEBUG("Calling forward method on Python object instance.");
 

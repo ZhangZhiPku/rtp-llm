@@ -1,0 +1,11 @@
+python3 -m sglang.bench_serving \
+  --backend sglang-oai-chat \
+  --host localhost \
+  --port 8000 \
+  --model /zhangzhi/models/qwen3_5_397B \
+  --dataset-name random-ids \
+  --random-input-len 1 \
+  --random-output-len 1024 \
+  --num-prompts 128 \
+  --request-rate 128 \
+  --warmup-requests 0 

@@ -48,13 +48,13 @@ class VIPServerProxy:
 
     def start(self):
         # load srv list
-        self.refresh_srv_lst()
-        self.update_srv_thread.start()
+        # self.refresh_srv_lst()
+        # self.update_srv_thread.start()
         self.started = True
 
     def close(self):
         self.update_srv_thread.stop_flag = True
-        self.update_srv_thread.join()
+        # self.update_srv_thread.join()
         self.started = False
 
     def refresh_srv_lst(self):
@@ -62,6 +62,7 @@ class VIPServerProxy:
         refresh vipserver server list right now
         :return:
         """
+        return
         params = get_address_server_params()
         query_string = get_query_string(params)
 
@@ -83,6 +84,7 @@ class VIPServerProxy:
             self.srv_hosts = srv_lst
             self.srv_update_lock.release()
         except Exception as e:
+            return
             logging.error(
                 f"failed to refresh vipserver server list, exception : {str(e)}"
             )
